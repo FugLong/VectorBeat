@@ -61,12 +61,29 @@ class SpotifyPlaylistService:
                 playlist = self.sp.playlist(playlist_id)
                 logger.info(f"Successfully fetched playlist: {playlist['name']}")
                 
-                # Get all tracks
+                # Update progress - playlist info fetched
+                update_progress(
+                    message=f"Fetched playlist '{playlist['name']}', loading tracks...",
+                    currentTrack=""
+                )
+                
+                # Get all tracks with progress updates
                 tracks = []
                 results = self.sp.playlist_tracks(playlist_id)
+                page_count = 0
+                tracks_fetched = 0
                 
-                # Process tracks
+                # Process tracks with progress updates
                 while results:
+                    page_count += 1
+                    page_tracks = len(results['items'])
+                    
+                    # Update progress for this page
+                    update_progress(
+                        message=f"Fetching tracks from Spotify (page {page_count})...",
+                        currentTrack=f"Loading {page_tracks} tracks from page {page_count}"
+                    )
+                    
                     for item in results['items']:
                         if item['track'] and item['track']['id']:  # Skip None tracks
                             track = item['track']
@@ -83,8 +100,21 @@ class SpotifyPlaylistService:
                                 'explicit': track['explicit']
                             }
                             tracks.append(track_info)
+                            tracks_fetched += 1
+                            
+                            # Update progress every 10 tracks
+                            if tracks_fetched % 10 == 0:
+                                update_progress(
+                                    message=f"Fetched {tracks_fetched} tracks from Spotify...",
+                                    currentTrack=f"Latest: {track['name']} by {', '.join([artist['name'] for artist in track['artists']])}"
+                                )
                     
                     # Get next page
+                    if results['next']:
+                        update_progress(
+                            message=f"Fetched {tracks_fetched} tracks, loading next page...",
+                            currentTrack=""
+                        )
                     results = self.sp.next(results) if results['next'] else None
                 
                 return {
@@ -322,10 +352,6 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
         )
         logger.info(f"Starting ingestion of {total_tracks} tracks...")
         
-        # Small delay to ensure progress is visible
-        import time
-        time.sleep(0.5)
-        
         # Update progress before starting track processing
         update_progress(
             current=0,
@@ -359,10 +385,6 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                         message=f"Processing first track of {total_tracks}...",
                         currentTrack=f"{track_info['title']} by {track_info['artist']}"
                     )
-                
-                # Small delay to make progress visible (remove in production)
-                import time
-                time.sleep(0.05)  # Reduced from 0.1 to 0.05 seconds
                 
                 # Log every 10 tracks
                 if tracks_processed % 10 == 0:
