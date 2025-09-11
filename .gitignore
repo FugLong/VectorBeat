@@ -62,8 +62,13 @@ cache/
 temp/
 tmp/
 
-# Models and Embeddings
-models/
+# ML Models and Embeddings (but keep code models)
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.hdf5
+models/*.bin
+models/*.safetensors
 embeddings/
 *.pkl
 *.joblib
