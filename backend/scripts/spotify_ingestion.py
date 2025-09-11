@@ -177,7 +177,7 @@ class SpotifyPlaylistService:
             return 2020
     
     async def _prefetch_artist_genres(self, tracks: List[Dict[str, Any]]) -> None:
-        """Pre-fetch genres for all unique artists to avoid duplicate API calls."""
+        """Pre-fetch genres for all unique artists using batch requests (up to 50 per call)."""
         try:
             # Collect all unique artist IDs
             unique_artist_ids = set()
@@ -187,23 +187,52 @@ class SpotifyPlaylistService:
                         if artist.get('id'):
                             unique_artist_ids.add(artist['id'])
             
-            logger.info(f"Pre-fetching genres for {len(unique_artist_ids)} unique artists...")
+            # Filter out already cached artists
+            uncached_artist_ids = [aid for aid in unique_artist_ids if aid not in self.artist_genre_cache]
             
-            # Fetch genres for each unique artist
-            for artist_id in unique_artist_ids:
-                if artist_id not in self.artist_genre_cache:
-                    try:
-                        artist = self.sp.artist(artist_id)
-                        if artist.get('genres'):
-                            self.artist_genre_cache[artist_id] = artist['genres'][0]
+            if not uncached_artist_ids:
+                logger.info("All artist genres already cached, skipping API calls")
+                return
+            
+            logger.info(f"Pre-fetching genres for {len(uncached_artist_ids)} unique artists using batch requests...")
+            
+            # Process artists in batches of 50 (Spotify API limit)
+            batch_size = 50
+            total_batches = (len(uncached_artist_ids) + batch_size - 1) // batch_size
+            
+            for batch_num in range(total_batches):
+                start_idx = batch_num * batch_size
+                end_idx = min(start_idx + batch_size, len(uncached_artist_ids))
+                batch_artist_ids = uncached_artist_ids[start_idx:end_idx]
+                
+                logger.info(f"Fetching batch {batch_num + 1}/{total_batches} ({len(batch_artist_ids)} artists)...")
+                
+                try:
+                    # Make batch request for up to 50 artists
+                    artists_response = self.sp.artists(batch_artist_ids)
+                    
+                    # Process each artist in the batch response
+                    for artist in artists_response['artists']:
+                        if artist:  # Check if artist data exists (some might be None)
+                            artist_id = artist['id']
+                            if artist.get('genres'):
+                                self.artist_genre_cache[artist_id] = artist['genres'][0]
+                            else:
+                                self.artist_genre_cache[artist_id] = 'Pop'
                         else:
-                            self.artist_genre_cache[artist_id] = 'Pop'
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch genre for artist {artist_id}: {str(e)}")
+                            # Handle case where artist data is None
+                            logger.warning(f"Received None artist data for one of the batch artists")
+                    
+                    logger.info(f"Successfully processed batch {batch_num + 1}/{total_batches}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to fetch batch {batch_num + 1}: {str(e)}")
+                    # Fallback: set default genre for all artists in this batch
+                    for artist_id in batch_artist_ids:
                         self.artist_genre_cache[artist_id] = 'Pop'
             
-            logger.info(f"Successfully cached genres for {len(self.artist_genre_cache)} artists")
-            logger.info(f"Optimization: Reduced API calls from {len(unique_artist_ids)} to {len(self.artist_genre_cache)} for genre fetching")
+            logger.info(f"Successfully cached genres for {len(self.artist_genre_cache)} total artists")
+            logger.info(f"Optimization: Reduced API calls from {len(uncached_artist_ids)} individual calls to {total_batches} batch calls")
             
         except Exception as e:
             logger.error(f"Failed to pre-fetch artist genres: {str(e)}")
