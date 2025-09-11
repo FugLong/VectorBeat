@@ -39,6 +39,9 @@ class SpotifyPlaylistService:
         # Use Spotify API with credentials
         self.sp = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
         
+        # Cache for artist genres to avoid duplicate API calls
+        self.artist_genre_cache = {}
+        
         # Test API connection
         try:
             test_search = self.sp.search('test', limit=1)
@@ -67,13 +70,13 @@ class SpotifyPlaylistService:
                     currentTrack=""
                 )
                 
-                # Get all tracks with progress updates
-                tracks = []
+                # First, collect all raw track data
+                raw_tracks = []
                 results = self.sp.playlist_tracks(playlist_id)
                 page_count = 0
                 tracks_fetched = 0
                 
-                # Process tracks with progress updates
+                # Collect all tracks first
                 while results:
                     page_count += 1
                     page_tracks = len(results['items'])
@@ -86,27 +89,14 @@ class SpotifyPlaylistService:
                     
                     for item in results['items']:
                         if item['track'] and item['track']['id']:  # Skip None tracks
-                            track = item['track']
-                            track_info = {
-                                'spotify_id': track['id'],
-                                'title': track['name'],
-                                'artist': ', '.join([artist['name'] for artist in track['artists']]),
-                                'album': track['album']['name'] if track['album'] else 'Unknown Album',
-                                'year': self._extract_year(track['album']['release_date']) if track['album'] else 2024,
-                                'genre': self._extract_genre(track),
-                                'album_art': self._get_album_art(track['album']) if track['album'] else None,
-                                'duration_ms': track['duration_ms'],
-                                'popularity': track['popularity'],
-                                'explicit': track['explicit']
-                            }
-                            tracks.append(track_info)
+                            raw_tracks.append(item['track'])
                             tracks_fetched += 1
                             
                             # Update progress every 10 tracks
                             if tracks_fetched % 10 == 0:
                                 update_progress(
                                     message=f"Fetched {tracks_fetched} tracks from Spotify...",
-                                    currentTrack=f"Latest: {track['name']} by {', '.join([artist['name'] for artist in track['artists']])}"
+                                    currentTrack=f"Latest: {item['track']['name']} by {', '.join([artist['name'] for artist in item['track']['artists']])}"
                                 )
                     
                     # Get next page
@@ -116,6 +106,30 @@ class SpotifyPlaylistService:
                             currentTrack=""
                         )
                     results = self.sp.next(results) if results['next'] else None
+                
+                # Pre-fetch artist genres for all unique artists
+                update_progress(
+                    message=f"Pre-fetching artist genres for {tracks_fetched} tracks...",
+                    currentTrack=""
+                )
+                await self._prefetch_artist_genres(raw_tracks)
+                
+                # Now process tracks with cached genre data
+                tracks = []
+                for track in raw_tracks:
+                    track_info = {
+                        'spotify_id': track['id'],
+                        'title': track['name'],
+                        'artist': ', '.join([artist['name'] for artist in track['artists']]),
+                        'album': track['album']['name'] if track['album'] else 'Unknown Album',
+                        'year': self._extract_year(track['album']['release_date']) if track['album'] else 2024,
+                        'genre': self._extract_genre(track),
+                        'album_art': self._get_album_art(track['album']) if track['album'] else None,
+                        'duration_ms': track['duration_ms'],
+                        'popularity': track['popularity'],
+                        'explicit': track['explicit']
+                    }
+                    tracks.append(track_info)
                 
                 return {
                     'title': playlist['name'],
@@ -162,19 +176,50 @@ class SpotifyPlaylistService:
         except:
             return 2020
     
-    def _extract_genre(self, track: Dict[str, Any]) -> str:
-        """Extract genre from track info."""
+    async def _prefetch_artist_genres(self, tracks: List[Dict[str, Any]]) -> None:
+        """Pre-fetch genres for all unique artists to avoid duplicate API calls."""
         try:
-            # Try to get genre from album
+            # Collect all unique artist IDs
+            unique_artist_ids = set()
+            for track in tracks:
+                if track.get('artists'):
+                    for artist in track['artists']:
+                        if artist.get('id'):
+                            unique_artist_ids.add(artist['id'])
+            
+            logger.info(f"Pre-fetching genres for {len(unique_artist_ids)} unique artists...")
+            
+            # Fetch genres for each unique artist
+            for artist_id in unique_artist_ids:
+                if artist_id not in self.artist_genre_cache:
+                    try:
+                        artist = self.sp.artist(artist_id)
+                        if artist.get('genres'):
+                            self.artist_genre_cache[artist_id] = artist['genres'][0]
+                        else:
+                            self.artist_genre_cache[artist_id] = 'Pop'
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch genre for artist {artist_id}: {str(e)}")
+                        self.artist_genre_cache[artist_id] = 'Pop'
+            
+            logger.info(f"Successfully cached genres for {len(self.artist_genre_cache)} artists")
+            logger.info(f"Optimization: Reduced API calls from {len(unique_artist_ids)} to {len(self.artist_genre_cache)} for genre fetching")
+            
+        except Exception as e:
+            logger.error(f"Failed to pre-fetch artist genres: {str(e)}")
+
+    def _extract_genre(self, track: Dict[str, Any]) -> str:
+        """Extract genre from track info using cached artist data."""
+        try:
+            # Try to get genre from album first
             if track.get('album', {}).get('genres'):
                 return track['album']['genres'][0]
             
-            # Try to get genre from artist
+            # Try to get genre from cached artist data
             if track.get('artists'):
                 artist_id = track['artists'][0]['id']
-                artist = self.sp.artist(artist_id)
-                if artist.get('genres'):
-                    return artist['genres'][0]
+                if artist_id in self.artist_genre_cache:
+                    return self.artist_genre_cache[artist_id]
             
             return 'Pop'  # Default genre
         except:
