@@ -16,11 +16,11 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-from models.track import Track, TrackCreate, TrackResponse, SearchQuery, SearchResponse
-from services.search_service import SearchService
-from services.track_service import TrackService
-from database.connection import get_database
-from database.schema import create_tables
+from backend.models.track import Track, TrackCreate, TrackResponse, SearchQuery, SearchResponse
+from backend.services.search_service import SearchService
+from backend.services.track_service import TrackService
+from backend.database.connection import get_database
+from backend.database.schema import create_tables
 
 # WebSocket connection manager for progress tracking
 class ConnectionManager:
@@ -69,11 +69,19 @@ manager = ConnectionManager()
 # No progress tracking needed - simple synchronous API
 
 # Configure logging
+import os
+from pathlib import Path
+
+# Get the project root directory
+project_root = Path(__file__).parent.parent
+logs_dir = project_root / "logs"
+logs_dir.mkdir(exist_ok=True)  # Create logs directory if it doesn't exist
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('../logs/vectorbeat.log'),
+        logging.FileHandler(logs_dir / "vectorbeat.log"),
         logging.StreamHandler()
     ]
 )
@@ -245,7 +253,7 @@ async def get_stats(track_service: TrackService = Depends(get_track_service)):
 
 
 # Simple progress tracking
-from progress import update_progress, get_progress, reset_progress
+from backend.progress import update_progress, get_progress, reset_progress
 
 @app.get("/api/ingestion/progress")
 async def get_ingestion_progress():
@@ -304,7 +312,7 @@ async def ingest_playlist(
         )
         
         # Import here to avoid circular imports
-        from scripts.spotify_ingestion import ingest_spotify_playlist as ingest_func
+        from backend.scripts.spotify_ingestion import ingest_spotify_playlist as ingest_func
         
         # Run ingestion in background task to allow progress updates
         import asyncio

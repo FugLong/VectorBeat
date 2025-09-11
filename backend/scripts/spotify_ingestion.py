@@ -15,13 +15,13 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from datetime import datetime
 
-from services.track_service import TrackService
-from services.audio_analysis_service import AudioAnalysisService
-from models.track import TrackCreate
-from embeddings.text_embeddings import TextEmbeddingService
-from embeddings.image_embeddings import ImageEmbeddingService
-from embeddings.audio_embeddings import AudioEmbeddingService
-from progress import update_progress
+from backend.services.track_service import TrackService
+from backend.services.audio_analysis_service import AudioAnalysisService
+from backend.models.track import TrackCreate
+from backend.embeddings.text_embeddings import TextEmbeddingService
+from backend.embeddings.image_embeddings import ImageEmbeddingService
+from backend.embeddings.audio_embeddings import AudioEmbeddingService
+from backend.progress import update_progress
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,6 @@ class SpotifyPlaylistService:
             return None
         except:
             return None
-
 
 class YouTubeAudioService:
     """Service for finding and downloading audio from YouTube."""
@@ -473,8 +472,8 @@ async def generate_embeddings_from_spotify(track, track_info, text_service, imag
         audio_embedding = None
         
         # Update track with embeddings
-        from services.track_service import TrackService
-        from database.connection import get_database
+        from backend.services.track_service import TrackService
+        from backend.database.connection import get_database
         
         track_service = TrackService(get_database())
         await track_service.update_track_embeddings(

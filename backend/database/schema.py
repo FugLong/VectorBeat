@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 import lancedb
 
-from models.track import Track, TrackCreate
+from backend.models.track import Track, TrackCreate
 
 logger = logging.getLogger(__name__)
 

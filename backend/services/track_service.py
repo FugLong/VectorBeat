@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
-from database.connection import get_database
-from database.schema import get_tracks_table, track_to_dict, dict_to_track, get_database_stats
-from models.track import Track, TrackCreate, TrackResponse, DatabaseStats
+from backend.database.connection import get_database
+from backend.database.schema import get_tracks_table, track_to_dict, dict_to_track, get_database_stats
+from backend.models.track import Track, TrackCreate, TrackResponse, DatabaseStats
 
 logger = logging.getLogger(__name__)
 

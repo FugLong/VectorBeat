@@ -8,12 +8,12 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from database.connection import get_database
-from database.schema import get_tracks_table, dict_to_track
-from models.track import Track, TrackResponse, SearchResult, SearchResponse, TrackFilters
-from embeddings.text_embeddings import TextEmbeddingService
-from embeddings.image_embeddings import ImageEmbeddingService
-from embeddings.audio_embeddings import AudioEmbeddingService
+from backend.database.connection import get_database
+from backend.database.schema import get_tracks_table, dict_to_track
+from backend.models.track import Track, TrackResponse, SearchResult, SearchResponse, TrackFilters
+from backend.embeddings.text_embeddings import TextEmbeddingService
+from backend.embeddings.image_embeddings import ImageEmbeddingService
+from backend.embeddings.audio_embeddings import AudioEmbeddingService
 
 logger = logging.getLogger(__name__)
 
