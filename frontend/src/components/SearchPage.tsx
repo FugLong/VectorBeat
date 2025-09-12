@@ -32,12 +32,12 @@ const SearchPage: React.FC = () => {
 
   // Search query - only enabled when there's actually a query
   const { data: searchData, isLoading, error } = useQuery({
-    queryKey: ['search', state.query, state.filters, state.mode],
+    queryKey: ['search', state.query, state.filters, state.mode, state.page],
     queryFn: () => ApiService.searchTracks({
       query: state.query,
       filters: state.filters,
       mode: state.mode,
-    }),
+    }, 20, state.page),
     enabled: !!state.query && state.query.trim().length > 0,
     retry: false,
   });
@@ -47,8 +47,12 @@ const SearchPage: React.FC = () => {
     if (searchData) {
       dispatch({ type: 'SET_RESULTS', payload: searchData.results });
       dispatch({ type: 'SET_LOADING', payload: false });
+      
+      // Calculate total pages based on total results
+      const totalPages = Math.ceil((searchData.total || 0) / 20);
+      dispatch({ type: 'SET_HAS_MORE', payload: state.page < totalPages });
     }
-  }, [searchData, dispatch]);
+  }, [searchData, dispatch, state.page]);
 
   // Update loading state
   useEffect(() => {
@@ -64,6 +68,7 @@ const SearchPage: React.FC = () => {
     dispatch({ type: 'SET_QUERY', payload: localQuery });
     dispatch({ type: 'SET_FILTERS', payload: localFilters });
     dispatch({ type: 'CLEAR_RESULTS' });
+    dispatch({ type: 'SET_PAGE', payload: 1 }); // Reset to first page
   };
 
   const handleClear = () => {
@@ -88,6 +93,26 @@ const SearchPage: React.FC = () => {
   const handleModeChange = (mode: 'semantic' | 'metadata' | 'combined') => {
     dispatch({ type: 'SET_MODE', payload: mode });
   };
+
+  const handlePageChange = (page: number) => {
+    dispatch({ type: 'SET_PAGE', payload: page });
+  };
+
+  const handleNextPage = () => {
+    if (state.hasMore) {
+      dispatch({ type: 'SET_PAGE', payload: state.page + 1 });
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (state.page > 1) {
+      dispatch({ type: 'SET_PAGE', payload: state.page - 1 });
+    }
+  };
+
+  // Calculate total pages and get total results
+  const totalPages = searchData ? Math.ceil((searchData.total || 0) / 20) : 0;
+  const totalResults = searchData?.total || 0;
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -228,6 +253,13 @@ const SearchPage: React.FC = () => {
             loading={state.loading}
             query={state.query}
             mode={state.mode}
+            page={state.page}
+            totalPages={totalPages}
+            totalResults={totalResults}
+            hasMore={state.hasMore}
+            onPageChange={handlePageChange}
+            onNextPage={handleNextPage}
+            onPrevPage={handlePrevPage}
           />
         )}
 

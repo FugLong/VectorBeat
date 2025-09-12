@@ -172,17 +172,19 @@ async def health_check():
 async def search_tracks(
     query: SearchQuery,
     limit: int = Query(default=20, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
     search_service: SearchService = Depends(get_search_service)
 ):
     """Search tracks using multi-modal semantic search."""
     try:
-        results = await search_service.search(
+        results, total = await search_service.search(
             query=query.query,
             limit=limit,
+            page=page,
             filters=query.filters,
             mode=query.mode or 'metadata'
         )
-        return SearchResponse(results=results, total=len(results))
+        return SearchResponse(results=results, total=total)
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
