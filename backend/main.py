@@ -27,6 +27,7 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.ingestion_progress: Dict[str, Dict] = {}
+        self.cancellation_flags: Dict[str, bool] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -52,6 +53,18 @@ class ConnectionManager:
                     self.active_connections.remove(connection)
         else:
             print("DEBUG: No active connections to send progress to")
+    
+    def set_cancellation_flag(self, task_id: str, cancelled: bool = True):
+        """Set cancellation flag for a specific task"""
+        self.cancellation_flags[task_id] = cancelled
+    
+    def is_cancelled(self, task_id: str) -> bool:
+        """Check if a task should be cancelled"""
+        return self.cancellation_flags.get(task_id, False)
+    
+    def clear_cancellation_flags(self):
+        """Clear all cancellation flags."""
+        self.cancellation_flags.clear()
 
     def update_progress(self, task_id: str, current: int, total: int, status: str, message: str = ""):
         """Update progress for a specific task"""
@@ -208,6 +221,36 @@ async def get_track(
         raise HTTPException(status_code=500, detail=f"Failed to get track: {str(e)}")
 
 
+@app.get("/api/debug/lyrics")
+async def debug_lyrics(
+    track_service: TrackService = Depends(get_track_service)
+):
+    """Debug endpoint to check if tracks have lyrics."""
+    try:
+        tracks = await track_service.list_tracks(skip=0, limit=10)
+        lyrics_info = []
+        
+        for track in tracks:
+            has_lyrics = bool(track.lyrics and track.lyrics.strip())
+            lyrics_info.append({
+                "track_id": track.track_id,
+                "title": track.title,
+                "artist": track.artist,
+                "has_lyrics": has_lyrics,
+                "lyrics_length": len(track.lyrics) if track.lyrics else 0,
+                "lyrics_preview": track.lyrics[:100] + "..." if track.lyrics and len(track.lyrics) > 100 else track.lyrics
+            })
+        
+        return {
+            "total_tracks": len(tracks),
+            "tracks_with_lyrics": sum(1 for t in lyrics_info if t["has_lyrics"]),
+            "tracks": lyrics_info
+        }
+    except Exception as e:
+        logger.error(f"Debug lyrics error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to debug lyrics: {str(e)}")
+
+
 @app.post("/api/tracks", response_model=TrackResponse)
 async def create_track(
     track: TrackCreate,
@@ -260,6 +303,27 @@ async def get_ingestion_progress():
     """Get current ingestion progress."""
     return get_progress()
 
+@app.post("/api/ingestion/cancel")
+async def cancel_ingestion():
+    """Cancel the current ingestion process."""
+    try:
+        # Set cancellation flag for the current task
+        manager.set_cancellation_flag("current", True)
+        
+        # Reset progress to show cancellation
+        update_progress(
+            isActive=False,
+            current=0,
+            total=0,
+            message="Ingestion cancelled by user",
+            currentTrack=""
+        )
+        
+        return {"message": "Ingestion cancelled successfully"}
+    except Exception as e:
+        logger.error(f"Failed to cancel ingestion: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to cancel ingestion: {str(e)}")
+
 
 # Database management endpoints
 @app.delete("/api/database/clear")
@@ -301,13 +365,16 @@ async def ingest_playlist(
         if not spotify_client_id or not spotify_client_secret:
             raise HTTPException(status_code=400, detail="spotify_client_id and spotify_client_secret are required")
         
-        # Initialize progress tracking
+        # Initialize progress tracking and reset cancellation flag
         reset_progress()
+        manager.clear_cancellation_flags()  # Clear all cancellation flags for new ingestion
+        
+        # Set initial progress state
         update_progress(
-            isActive=True,
+            isActive=False,  # Start as inactive to clear any stale data
             current=0,
             total=0,
-            message="Starting playlist ingestion...",
+            message="Preparing ingestion...",
             currentTrack=""
         )
         
@@ -324,7 +391,7 @@ async def ingest_playlist(
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 result = loop.run_until_complete(
-                    ingest_func(playlist_url, track_service, None, None, spotify_client_id, spotify_client_secret)
+                    ingest_func(playlist_url, track_service, manager, "current", spotify_client_id, spotify_client_secret)
                 )
                 # Mark as completed
                 update_progress(

@@ -17,6 +17,7 @@ from datetime import datetime
 
 from backend.services.track_service import TrackService
 from backend.services.audio_analysis_service import AudioAnalysisService
+from backend.services.lyrics_service import LyricsService
 from backend.models.track import TrackCreate
 from backend.embeddings.text_embeddings import TextEmbeddingService
 from backend.embeddings.image_embeddings import ImageEmbeddingService
@@ -50,7 +51,7 @@ class SpotifyPlaylistService:
             logger.error(f"Spotify API connection failed: {str(e)}")
             raise
     
-    async def extract_playlist_info(self, playlist_url: str, manager=None, task_id: str = None) -> Dict[str, Any]:
+    async def extract_playlist_info(self, playlist_url: str, manager=None, task_id: str = None, lyrics_service=None) -> Dict[str, Any]:
         """Extract playlist and track info from Spotify."""
         try:
             # Extract playlist ID from URL
@@ -114,9 +115,57 @@ class SpotifyPlaylistService:
                 )
                 await self._prefetch_artist_genres(raw_tracks)
                 
-                # Now process tracks with cached genre data
+                # Pre-fetch lyrics for all tracks
+                update_progress(
+                    message=f"Fetching lyrics for {tracks_fetched} tracks...",
+                    currentTrack=""
+                )
+                logger.info(f"Starting lyrics fetching for {tracks_fetched} tracks...")
+                try:
+                    # Create cancellation check function
+                    def is_cancelled():
+                        return manager and manager.is_cancelled(task_id or "current") if manager else False
+                    
+                    lyrics_results = lyrics_service.batch_get_lyrics(
+                        raw_tracks, 
+                        progress_callback=lambda current, total, title: update_progress(
+                            message=f"Fetching lyrics... ({current}/{total})",
+                            currentTrack=f"Latest: {title}"
+                        ),
+                        cancellation_check=is_cancelled
+                    )
+                    logger.info(f"Lyrics fetching completed. Results: {len(lyrics_results)} tracks with lyrics")
+                except Exception as e:
+                    logger.error(f"Lyrics fetching failed: {str(e)}")
+                    lyrics_results = {}
+                
+                # Check for cancellation after lyrics fetching
+                if manager and manager.is_cancelled(task_id or "current"):
+                    logger.info("Ingestion cancelled by user after lyrics fetching")
+                    update_progress(
+                        isActive=False,
+                        current=0,
+                        total=len(raw_tracks),
+                        message="Ingestion cancelled by user",
+                        currentTrack=""
+                    )
+                    return {
+                        "message": "Ingestion cancelled",
+                        "playlist_url": playlist_url,
+                        "tracks_processed": 0,
+                        "tracks_added": 0
+                    }
+                
+                # Now process tracks with cached genre data and lyrics
                 tracks = []
+                logger.info(f"Processing {len(raw_tracks)} tracks with lyrics_results: {len(lyrics_results)} entries")
                 for track in raw_tracks:
+                    track_lyrics = lyrics_results.get(track['id'], '')
+                    if track_lyrics:
+                        logger.info(f"Track {track['name']} has lyrics ({len(track_lyrics)} chars)")
+                    else:
+                        logger.debug(f"Track {track['name']} has no lyrics (ID: {track['id']})")
+                    
                     track_info = {
                         'spotify_id': track['id'],
                         'title': track['name'],
@@ -127,7 +176,8 @@ class SpotifyPlaylistService:
                         'album_art': self._get_album_art(track['album']) if track['album'] else None,
                         'duration_ms': track['duration_ms'],
                         'popularity': track['popularity'],
-                        'explicit': track['explicit']
+                        'explicit': track['explicit'],
+                        'lyrics': track_lyrics  # Add fetched lyrics
                     }
                     tracks.append(track_info)
                 
@@ -395,6 +445,12 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
         # Initialize services with embeddings (text + image only for now)
         text_embedding_service = TextEmbeddingService()
         image_embedding_service = ImageEmbeddingService()
+        lyrics_service = LyricsService()
+        
+        # Small delay to ensure frontend has cleared stale progress data
+        import asyncio
+        await asyncio.sleep(0.5)
+        
         # Initialize Spotify service
         update_progress(
             isActive=True,
@@ -410,7 +466,13 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
             message="Fetching playlist data from Spotify...",
             currentTrack=""
         )
-        playlist_info = await spotify_service.extract_playlist_info(playlist_url, manager, task_id)
+        playlist_info = await spotify_service.extract_playlist_info(playlist_url, manager, task_id, lyrics_service)
+        
+        # Check if ingestion was cancelled during playlist extraction
+        if playlist_info.get("message") == "Ingestion cancelled":
+            logger.info("Ingestion cancelled during playlist extraction")
+            return playlist_info
+            
         total_tracks = len(playlist_info['tracks'])
         
         logger.info(f"Found {total_tracks} tracks from Spotify")
@@ -438,6 +500,23 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
         
         # Process each track
         for track_info in playlist_info['tracks']:
+            # Check for cancellation
+            if manager and manager.is_cancelled(task_id or "current"):
+                logger.info("Ingestion cancelled by user")
+                update_progress(
+                    isActive=False,
+                    current=tracks_processed,
+                    total=total_tracks,
+                    message="Ingestion cancelled by user",
+                    currentTrack=""
+                )
+                return {
+                    "message": "Ingestion cancelled",
+                    "playlist_url": playlist_url,
+                    "tracks_processed": tracks_processed,
+                    "tracks_added": tracks_added
+                }
+            
             try:
                 tracks_processed += 1
                 logger.info(f"Processing track {tracks_processed}/{total_tracks}: {track_info['title']} by {track_info['artist']}")
@@ -476,6 +555,12 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                 instruments = "Guitar, Bass, Drums, Vocals"
                 
                 # Create track with perfect Spotify metadata and audio analysis
+                lyrics_text = track_info.get('lyrics', '')
+                if lyrics_text:
+                    logger.info(f"Creating track with lyrics ({len(lyrics_text)} chars): {track_info['title']} by {track_info['artist']}")
+                else:
+                    logger.info(f"Creating track without lyrics: {track_info['title']} by {track_info['artist']}")
+                
                 track_create = TrackCreate(
                     title=track_info['title'],
                     artist=track_info['artist'],
@@ -486,7 +571,7 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                     youtube_url=youtube_url,
                     thumbnail_url=track_info['album_art'] or '',
                     album_art_url=track_info['album_art'] or '',
-                    lyrics="",  # Skip lyrics for now
+                    lyrics=lyrics_text,  # Use fetched lyrics
                     semantic_description=description,
                     mood=mood,
                     tempo=tempo,
@@ -530,8 +615,10 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
 async def generate_embeddings_from_spotify(track, track_info, text_service, image_service, audio_service, audio_path, audio_analysis_service=None):
     """Generate embeddings from Spotify data."""
     try:
-        # Text embedding from title, artist, album, description
+        # Text embedding from title, artist, album, description, and lyrics
         text_content = f"{track.title} {track.artist} {track.album} {track.semantic_description}"
+        if track.lyrics:
+            text_content += f" {track.lyrics}"
         text_embedding = text_service.embed_text(text_content)
         
         # Image embedding from album art
@@ -545,6 +632,15 @@ async def generate_embeddings_from_spotify(track, track_info, text_service, imag
         # Skip audio embedding for now - focus on image search
         audio_embedding = None
         
+        # Generate lyrics-specific embedding if lyrics exist
+        lyrics_embedding = None
+        if track.lyrics:
+            try:
+                lyrics_embedding = text_service.embed_text(track.lyrics)
+            except Exception as e:
+                logger.debug(f"Lyrics embedding failed: {str(e)}")
+                lyrics_embedding = text_embedding  # Fallback to text embedding
+        
         # Update track with embeddings
         from backend.services.track_service import TrackService
         from backend.database.connection import get_database
@@ -556,7 +652,7 @@ async def generate_embeddings_from_spotify(track, track_info, text_service, imag
             image_embedding=image_embedding,
             audio_embedding=audio_embedding,
             semantic_embedding=text_embedding,  # Use text embedding for semantic
-            lyrics_embedding=text_embedding     # Use text embedding for lyrics
+            lyrics_embedding=lyrics_embedding or text_embedding  # Use lyrics embedding if available
         )
         
     except Exception as e:

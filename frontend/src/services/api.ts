@@ -194,6 +194,19 @@ export class ApiService {
       throw error;
     }
   }
+
+  /**
+   * Cancel the current ingestion process
+   */
+  static async cancelIngestion(): Promise<{ message: string }> {
+    try {
+      const response: AxiosResponse<{ message: string }> = await api.post('/api/ingestion/cancel');
+      return response.data;
+    } catch (error) {
+      console.error('Cancel ingestion error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

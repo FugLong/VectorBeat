@@ -12,17 +12,18 @@ import {
   TextField,
   Alert,
   Snackbar,
-  LinearProgress,
-  Chip
+  LinearProgress
 } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import { MusicNote, Delete, PlaylistAdd, Settings } from '@mui/icons-material';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiService } from '../services/api';
+import { useSearch } from '../contexts/SearchContext';
 
 const Navigation: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { dispatch: searchDispatch } = useSearch();
   
   // State for dialogs and notifications
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -46,7 +47,9 @@ const Navigation: React.FC = () => {
   // Poll for progress updates when ingesting
   useEffect(() => {
     if (isIngesting) {
-      pollingIntervalRef.current = setInterval(async () => {
+      // Add a small delay before starting to poll to give backend time to start
+      setTimeout(() => {
+        pollingIntervalRef.current = setInterval(async () => {
         try {
           const response = await fetch('http://localhost:8000/api/ingestion/progress');
           if (response.ok) {
@@ -59,7 +62,9 @@ const Navigation: React.FC = () => {
             });
             
             // If ingestion is complete, stop polling and refresh data
-            if (!data.isActive) {
+            // Only stop if we have a clear completion message, not just isActive: false
+            if (data.message && (data.message.includes("completed") || data.message.includes("cancelled") || data.message.includes("failed"))) {
+              console.log('Ingestion finished, setting isIngesting to false');
               setIsIngesting(false);
               if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current);
@@ -71,7 +76,7 @@ const Navigation: React.FC = () => {
               queryClient.invalidateQueries({ queryKey: ['stats'] });
               
               // Show completion message and close dialog
-              if (data.message && data.message.includes("completed")) {
+              if (data.message?.includes("completed")) {
                 setSnackbar({ 
                   open: true, 
                   message: `Successfully processed ${data.current} tracks!`, 
@@ -80,6 +85,13 @@ const Navigation: React.FC = () => {
                 // Clear the URL and close the dialog
                 setPlaylistUrl('');
                 setPlaylistDialogOpen(false);
+              } else if (data.message?.includes("cancelled")) {
+                setSnackbar({ 
+                  open: true, 
+                  message: 'Ingestion cancelled', 
+                  severity: 'success' 
+                });
+                setPlaylistDialogOpen(false);
               }
             }
           }
@@ -87,6 +99,7 @@ const Navigation: React.FC = () => {
           console.error('Progress polling error:', error);
         }
       }, 1000); // Poll every second for real-time updates
+      }, 500); // Wait 500ms before starting to poll
     } else {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
@@ -100,7 +113,7 @@ const Navigation: React.FC = () => {
         pollingIntervalRef.current = null;
       }
     };
-  }, [isIngesting]);
+  }, [isIngesting, queryClient]);
 
   // Mutations
   const clearDatabaseMutation = useMutation({
@@ -109,6 +122,9 @@ const Navigation: React.FC = () => {
       setSnackbar({ open: true, message: 'Database cleared successfully!', severity: 'success' });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       queryClient.invalidateQueries({ queryKey: ['tracks'] });
+      queryClient.invalidateQueries({ queryKey: ['search'] });
+      // Clear the search state
+      searchDispatch({ type: 'RESET_SEARCH' });
     },
     onError: (error: any) => {
       setSnackbar({ open: true, message: `Failed to clear database: ${error.message}`, severity: 'error' });
@@ -119,6 +135,8 @@ const Navigation: React.FC = () => {
     mutationFn: (data: {url: string, clientId: string, clientSecret: string}) => ApiService.ingestPlaylist(data.url, data.clientId, data.clientSecret),
     onSuccess: (response) => {
       console.log('Ingestion started:', response);
+      console.log('Mutation success, ensuring isIngesting is true');
+      setIsIngesting(true);
       // Don't set isIngesting to false here - let the polling handle it
       // Don't show success message here - let the progress polling handle it
       // Don't invalidate queries here - let the completion handler do it
@@ -139,6 +157,20 @@ const Navigation: React.FC = () => {
     setClearDialogOpen(false);
   };
 
+  const handleCancelIngestion = async () => {
+    try {
+      console.log('Cancelling ingestion...');
+      await ApiService.cancelIngestion();
+      console.log('Ingestion cancelled, setting isIngesting to false');
+      setIsIngesting(false);
+      setPlaylistDialogOpen(false);
+      setSnackbar({ open: true, message: 'Ingestion cancelled', severity: 'success' });
+    } catch (error) {
+      console.error('Failed to cancel ingestion:', error);
+      setSnackbar({ open: true, message: 'Failed to cancel ingestion', severity: 'error' });
+    }
+  };
+
   const handleSaveCredentials = () => {
     localStorage.setItem('spotify_client_id', spotifyClientId);
     localStorage.setItem('spotify_client_secret', spotifyClientSecret);
@@ -148,6 +180,14 @@ const Navigation: React.FC = () => {
 
   const handleIngestPlaylist = () => {
     if (playlistUrl.trim() && spotifyClientId.trim() && spotifyClientSecret.trim()) {
+      console.log('Starting ingestion, setting isIngesting to true');
+      // Clear any stale progress data immediately
+      setIngestionProgress({
+        current: 0,
+        total: 0,
+        message: "Starting ingestion...",
+        currentTrack: ""
+      });
       setIsIngesting(true);
       ingestPlaylistMutation.mutate({
         url: playlistUrl.trim(),
@@ -341,7 +381,12 @@ const Navigation: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPlaylistDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={isIngesting ? handleCancelIngestion : () => setPlaylistDialogOpen(false)}
+            color={isIngesting ? 'error' : 'inherit'}
+          >
+            {isIngesting ? 'Cancel Ingestion' : 'Cancel'}
+          </Button>
           <Button 
             onClick={handleIngestPlaylist} 
             color="primary" 

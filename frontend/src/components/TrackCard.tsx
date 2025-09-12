@@ -346,22 +346,35 @@ const TrackCard: React.FC<TrackCardProps> = ({ result, index }) => {
             </Grid>
           </Grid>
 
-          {track.lyrics && (
+          {track.lyrics && track.lyrics.trim() && (
             <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Lyrics
+              <Typography variant="subtitle2" gutterBottom color="primary">
+                🎵 Lyrics ({track.lyrics.length} characters)
               </Typography>
               <Typography
                 variant="body2"
                 sx={{
-                  maxHeight: 200,
+                  maxHeight: 300,
                   overflow: 'auto',
                   backgroundColor: 'background.paper',
                   p: 2,
                   borderRadius: 1,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  whiteSpace: 'pre-line',
+                  fontFamily: 'monospace',
+                  fontSize: '0.9rem',
+                  lineHeight: 1.4,
                 }}
               >
                 {track.lyrics}
+              </Typography>
+            </Box>
+          )}
+          {(!track.lyrics || !track.lyrics.trim()) && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                No lyrics available for this track
               </Typography>
             </Box>
           )}
