@@ -28,7 +28,7 @@ class SearchService:
         self.image_embedding_service = ImageEmbeddingService()
         self.audio_embedding_service = AudioEmbeddingService()
     
-    async def search(self, query: str, limit: int = 20, filters: Optional[TrackFilters] = None, mode: str = 'metadata') -> List[SearchResult]:
+    async def search(self, query: str, limit: int = 20, page: int = 1, filters: Optional[TrackFilters] = None, mode: str = 'metadata') -> tuple[List[SearchResult], int]:
         """Perform metadata-based search (simplified version without embeddings)."""
         try:
             # Get all tracks from database
@@ -36,14 +36,14 @@ class SearchService:
             df = table.to_pandas()
             
             if df.empty:
-                return []
+                return [], 0
             
             # Apply filters if provided
             if filters:
                 df = self._apply_filters(df, filters)
             
             if df.empty:
-                return []
+                return [], 0
             
             # Calculate similarity scores based on mode
             results = []
@@ -256,8 +256,17 @@ class SearchService:
             # Sort by similarity score (descending)
             results.sort(key=lambda x: x.similarity_score, reverse=True)
             
-            # Return top results
-            return results[:limit]
+            # Filter out 0% matches
+            filtered_results = [r for r in results if r.similarity_score > 0]
+            
+            # Calculate pagination based on filtered results
+            total_results = len(filtered_results)
+            start_index = (page - 1) * limit
+            end_index = start_index + limit
+            
+            # Return paginated results and total count
+            paginated_results = filtered_results[start_index:end_index]
+            return paginated_results, total_results
             
         except Exception as e:
             logger.error(f"Failed to perform search: {str(e)}")
@@ -411,21 +420,21 @@ class SearchService:
             return 0.0
     
     async def search_by_embedding(self, embedding: List[float], embedding_type: str, 
-                                limit: int = 20, filters: Optional[TrackFilters] = None) -> List[SearchResult]:
+                                limit: int = 20, page: int = 1, filters: Optional[TrackFilters] = None) -> tuple[List[SearchResult], int]:
         """Search using a pre-computed embedding."""
         try:
             table = get_tracks_table(self.db)
             df = table.to_pandas()
             
             if df.empty:
-                return []
+                return [], 0
             
             # Apply filters if provided
             if filters:
                 df = self._apply_filters(df, filters)
             
             if df.empty:
-                return []
+                return [], 0
             
             # Calculate similarities
             results = []
@@ -450,9 +459,20 @@ class SearchService:
                     )
                     results.append(result)
             
-            # Sort by similarity and return top results
+            # Sort by similarity and return paginated results
             results.sort(key=lambda x: x.similarity_score, reverse=True)
-            return results[:limit]
+            
+            # Filter out 0% matches
+            filtered_results = [r for r in results if r.similarity_score > 0]
+            
+            # Calculate pagination based on filtered results
+            total_results = len(filtered_results)
+            start_index = (page - 1) * limit
+            end_index = start_index + limit
+            
+            # Return paginated results and total count
+            paginated_results = filtered_results[start_index:end_index]
+            return paginated_results, total_results
             
         except Exception as e:
             logger.error(f"Failed to search by embedding: {str(e)}")

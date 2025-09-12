@@ -63,11 +63,13 @@ export class ApiService {
   /**
    * Search for tracks using semantic search
    */
-  static async searchTracks(query: SearchQuery, limit: number = 20): Promise<SearchResponse> {
+  static async searchTracks(query: SearchQuery, limit: number = 20, page: number = 1): Promise<SearchResponse> {
     try {
-      const response: AxiosResponse<SearchResponse> = await api.post('/api/search', {
-        ...query,
-        limit,
+      const response: AxiosResponse<SearchResponse> = await api.post('/api/search', query, {
+        params: {
+          limit,
+          page,
+        }
       });
       return response.data;
     } catch (error) {
