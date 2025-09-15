@@ -59,67 +59,123 @@ class SearchService:
                 if mode == 'metadata':
                     # Traditional string search - highly effective
                     score = 0.0
-                    query_words = query_lower.split()
                     
-                    # Title matching (highest priority)
-                    if track.title:
+                    # Filter out single letters and common words for better matching
+                    all_query_words = query_lower.split()
+                    meaningful_words = [word for word in all_query_words if len(word) > 1 and word not in ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']]
+                    query_words = meaningful_words if meaningful_words else all_query_words
+                    
+                    # Check for exact phrase match first (highest priority)
+                    # Only treat multi-word queries as phrases
+                    phrase_matches = 0
+                    is_multi_word_phrase = len(query_lower.split()) > 1
+                    
+                    if is_multi_word_phrase:
+                        if query_lower in track.title.lower():
+                            phrase_matches += 1
+                        if query_lower in track.artist.lower():
+                            phrase_matches += 1
+                        if track.lyrics and query_lower in track.lyrics.lower():
+                            phrase_matches += 1
+                        
+                        if phrase_matches > 0:
+                            # Exact phrase matches get the highest score - longer phrases get bonus
+                            phrase_length_bonus = len(query_lower.split()) * 0.1  # Bonus for longer phrases
+                            score += 0.8 + (phrase_matches * 0.1) + phrase_length_bonus
+                    
+                    # Title matching (highest priority) - only if no phrase match
+                    if track.title and phrase_matches == 0:
                         title_lower = track.title.lower()
-                        # Exact phrase match
-                        if query_lower in title_lower:
-                            score += 0.9
-                        # All words match
-                        elif all(word in title_lower for word in query_words):
-                            score += 0.8
-                        # Partial word matches
-                        else:
-                            word_matches = sum(1 for word in query_words if word in title_lower)
-                            score += (word_matches / len(query_words)) * 0.6
+                        if query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += title_lower.count(word)
+                            # For single-word searches, use occurrence count directly
+                            if len(query_words) == 1:
+                                score += min(0.5, total_word_count * 0.25)  # Direct count-based scoring for title
+                            else:
+                                # For multi-word searches, use the existing logic
+                                if all(word in title_lower for word in query_words):
+                                    score += 0.5
+                                score += min(0.3, (total_word_count / len(query_words)) * 0.08)
                     
-                    # Artist matching (high priority)
-                    if track.artist:
+                    # Artist matching (high priority) - only if no phrase match
+                    if track.artist and phrase_matches == 0:
                         artist_lower = track.artist.lower()
-                        if query_lower in artist_lower:
-                            score += 0.8
-                        elif all(word in artist_lower for word in query_words):
-                            score += 0.7
-                        else:
-                            word_matches = sum(1 for word in query_words if word in artist_lower)
-                            score += (word_matches / len(query_words)) * 0.5
+                        if query_words and all(word in artist_lower for word in query_words):
+                            score += 0.4  # Reduced from 0.7
+                        elif query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += artist_lower.count(word)
+                            score += min(0.25, (total_word_count / len(query_words)) * 0.06)  # Cap per field and reduce multiplier
                     
-                    # Album matching (medium priority)
-                    if track.album:
+                    # Lyrics matching (high priority) - only if no phrase match
+                    if track.lyrics and phrase_matches == 0:
+                        lyrics_lower = track.lyrics.lower()
+                        if query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += lyrics_lower.count(word)
+                            # For single-word searches, use occurrence count directly
+                            if len(query_words) == 1:
+                                score += min(0.4, total_word_count * 0.15)  # Direct count-based scoring
+                            else:
+                                # For multi-word searches, use the existing logic
+                                if all(word in lyrics_lower for word in query_words):
+                                    score += 0.4
+                                score += min(0.25, (total_word_count / len(query_words)) * 0.06)
+                    
+                    # Album matching (medium priority) - only if no phrase match
+                    if track.album and phrase_matches == 0:
                         album_lower = track.album.lower()
-                        if query_lower in album_lower:
-                            score += 0.6
-                        elif all(word in album_lower for word in query_words):
+                        if query_words and all(word in album_lower for word in query_words):
                             score += 0.5
-                        else:
-                            word_matches = sum(1 for word in query_words if word in album_lower)
-                            score += (word_matches / len(query_words)) * 0.3
+                        elif query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += album_lower.count(word)
+                            score += min(0.2, (total_word_count / len(query_words)) * 0.08)  # Cap per field and reduce multiplier
                     
-                    # Genre matching (medium priority)
-                    if track.genre:
+                    # Genre matching (medium priority) - only if no phrase match
+                    if track.genre and phrase_matches == 0:
                         genre_lower = track.genre.lower()
-                        if query_lower in genre_lower:
-                            score += 0.5
-                        elif all(word in genre_lower for word in query_words):
+                        if query_words and all(word in genre_lower for word in query_words):
                             score += 0.4
-                        else:
-                            word_matches = sum(1 for word in query_words if word in genre_lower)
-                            score += (word_matches / len(query_words)) * 0.2
+                        elif query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += genre_lower.count(word)
+                            score += min(0.15, (total_word_count / len(query_words)) * 0.06)  # Cap per field and reduce multiplier
                     
-                    # Description matching (low priority)
-                    if track.semantic_description:
+                    # Description matching (low priority) - only if no phrase match
+                    if track.semantic_description and phrase_matches == 0:
                         desc_lower = track.semantic_description.lower()
-                        if query_lower in desc_lower:
-                            score += 0.3
-                        else:
-                            word_matches = sum(1 for word in query_words if word in desc_lower)
-                            score += (word_matches / len(query_words)) * 0.1
+                        if query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += desc_lower.count(word)
+                            score += min(0.1, (total_word_count / len(query_words)) * 0.04)  # Cap per field and reduce multiplier
                     
                     # Year matching
                     if track.year and str(track.year) in query:
                         score += 0.2
+                    
+                    # Fallback: if no meaningful matches found, try single letters (very low priority)
+                    if score == 0 and len(all_query_words) > 0:
+                        single_letters = [word for word in all_query_words if len(word) == 1]
+                        if single_letters:
+                            # Very low score for single letter matches
+                            single_letter_matches = 0
+                            if track.title:
+                                single_letter_matches += sum(1 for letter in single_letters if letter in track.title.lower())
+                            if track.artist:
+                                single_letter_matches += sum(1 for letter in single_letters if letter in track.artist.lower())
+                            if track.lyrics:
+                                single_letter_matches += sum(1 for letter in single_letters if letter in track.lyrics.lower())
+                            
+                            if single_letter_matches > 0:
+                                score = min(0.1, single_letter_matches * 0.02)  # Very low score
                     
                     similarity_score = min(1.0, score)
                     match_type = 'metadata'
@@ -162,58 +218,107 @@ class SearchService:
                 
                 elif mode == 'combined':
                     # Combined metadata + semantic search
+                    # Use the same improved metadata scoring logic as metadata mode
                     metadata_score = 0.0
-                    query_words = query_lower.split()
                     
-                    # Calculate metadata score (same as metadata mode)
-                    if track.title:
+                    # Filter out single letters and common words for better matching
+                    all_query_words = query_lower.split()
+                    meaningful_words = [word for word in all_query_words if len(word) > 1 and word not in ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']]
+                    query_words = meaningful_words if meaningful_words else all_query_words
+                    
+                    # Check for exact phrase match first (highest priority)
+                    # Only treat multi-word queries as phrases
+                    phrase_matches = 0
+                    is_multi_word_phrase = len(query_lower.split()) > 1
+                    
+                    if is_multi_word_phrase:
+                        if query_lower in track.title.lower():
+                            phrase_matches += 1
+                        if query_lower in track.artist.lower():
+                            phrase_matches += 1
+                        if track.lyrics and query_lower in track.lyrics.lower():
+                            phrase_matches += 1
+                        
+                        if phrase_matches > 0:
+                            # Exact phrase matches get the highest score - longer phrases get bonus
+                            phrase_length_bonus = len(query_lower.split()) * 0.1  # Bonus for longer phrases
+                            metadata_score += 0.8 + (phrase_matches * 0.1) + phrase_length_bonus
+                    
+                    # Title matching (highest priority) - only if no phrase match
+                    if track.title and phrase_matches == 0:
                         title_lower = track.title.lower()
-                        if query_lower in title_lower:
-                            metadata_score += 0.9
-                        elif all(word in title_lower for word in query_words):
-                            metadata_score += 0.8
-                        else:
-                            word_matches = sum(1 for word in query_words if word in title_lower)
-                            metadata_score += (word_matches / len(query_words)) * 0.6
+                        if query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += title_lower.count(word)
+                            # For single-word searches, use occurrence count directly
+                            if len(query_words) == 1:
+                                metadata_score += min(0.5, total_word_count * 0.25)  # Direct count-based scoring for title
+                            else:
+                                # For multi-word searches, use the existing logic
+                                if all(word in title_lower for word in query_words):
+                                    metadata_score += 0.5
+                                metadata_score += min(0.3, (total_word_count / len(query_words)) * 0.08)
                     
-                    if track.artist:
+                    # Artist matching (high priority) - only if no phrase match
+                    if track.artist and phrase_matches == 0:
                         artist_lower = track.artist.lower()
-                        if query_lower in artist_lower:
-                            metadata_score += 0.8
-                        elif all(word in artist_lower for word in query_words):
-                            metadata_score += 0.7
-                        else:
-                            word_matches = sum(1 for word in query_words if word in artist_lower)
-                            metadata_score += (word_matches / len(query_words)) * 0.5
+                        if query_words and all(word in artist_lower for word in query_words):
+                            metadata_score += 0.4  # Reduced from 0.7
+                        elif query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += artist_lower.count(word)
+                            metadata_score += min(0.25, (total_word_count / len(query_words)) * 0.06)  # Cap per field and reduce multiplier
                     
-                    if track.album:
+                    # Lyrics matching (high priority) - only if no phrase match
+                    if track.lyrics and phrase_matches == 0:
+                        lyrics_lower = track.lyrics.lower()
+                        if query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += lyrics_lower.count(word)
+                            # For single-word searches, use occurrence count directly
+                            if len(query_words) == 1:
+                                metadata_score += min(0.4, total_word_count * 0.15)  # Direct count-based scoring
+                            else:
+                                # For multi-word searches, use the existing logic
+                                if all(word in lyrics_lower for word in query_words):
+                                    metadata_score += 0.4
+                                metadata_score += min(0.25, (total_word_count / len(query_words)) * 0.06)
+                    
+                    # Album matching (medium priority) - only if no phrase match
+                    if track.album and phrase_matches == 0:
                         album_lower = track.album.lower()
-                        if query_lower in album_lower:
-                            metadata_score += 0.6
-                        elif all(word in album_lower for word in query_words):
+                        if query_words and all(word in album_lower for word in query_words):
                             metadata_score += 0.5
-                        else:
-                            word_matches = sum(1 for word in query_words if word in album_lower)
-                            metadata_score += (word_matches / len(query_words)) * 0.3
+                        elif query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += album_lower.count(word)
+                            metadata_score += min(0.2, (total_word_count / len(query_words)) * 0.08)  # Cap per field and reduce multiplier
                     
-                    if track.genre:
+                    # Genre matching (medium priority) - only if no phrase match
+                    if track.genre and phrase_matches == 0:
                         genre_lower = track.genre.lower()
-                        if query_lower in genre_lower:
-                            metadata_score += 0.5
-                        elif all(word in genre_lower for word in query_words):
+                        if query_words and all(word in genre_lower for word in query_words):
                             metadata_score += 0.4
-                        else:
-                            word_matches = sum(1 for word in query_words if word in genre_lower)
-                            metadata_score += (word_matches / len(query_words)) * 0.2
+                        elif query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += genre_lower.count(word)
+                            metadata_score += min(0.15, (total_word_count / len(query_words)) * 0.06)  # Cap per field and reduce multiplier
                     
-                    if track.semantic_description:
+                    # Description matching (low priority) - only if no phrase match
+                    if track.semantic_description and phrase_matches == 0:
                         desc_lower = track.semantic_description.lower()
-                        if query_lower in desc_lower:
-                            metadata_score += 0.3
-                        else:
-                            word_matches = sum(1 for word in query_words if word in desc_lower)
-                            metadata_score += (word_matches / len(query_words)) * 0.1
+                        if query_words:
+                            total_word_count = 0
+                            for word in query_words:
+                                total_word_count += desc_lower.count(word)
+                            metadata_score += min(0.1, (total_word_count / len(query_words)) * 0.04)  # Cap per field and reduce multiplier
                     
+                    # Year matching
                     if track.year and str(track.year) in query:
                         metadata_score += 0.2
                     
@@ -241,7 +346,7 @@ class SearchService:
                         )
                     
                     # Combine metadata (60%) and semantic (40%) scores
-                    similarity_score = min(1.0, (metadata_score * 0.6) + (semantic_score * 0.4))
+                    similarity_score = max(0.0, min(1.0, (metadata_score * 0.6) + (semantic_score * 0.4)))
                     match_type = 'combined'
                 
                 # Create search result
@@ -249,7 +354,8 @@ class SearchService:
                 result = SearchResult(
                     track=track_response,
                     similarity_score=similarity_score,
-                    match_type=match_type
+                    match_type=match_type,
+                    query=query
                 )
                 results.append(result)
             
@@ -455,7 +561,8 @@ class SearchService:
                     result = SearchResult(
                         track=track_response,
                         similarity_score=similarity,
-                        match_type=embedding_type
+                        match_type=embedding_type,
+                        query=query  # Note: embedding search doesn't have a text query, but keeping for consistency
                     )
                     results.append(result)
             

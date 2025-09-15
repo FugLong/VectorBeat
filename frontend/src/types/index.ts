@@ -25,6 +25,7 @@ export interface SearchResult {
   track: Track;
   similarity_score: number;
   match_type: 'text' | 'image' | 'audio' | 'combined';
+  query?: string;
 }
 
 export interface SearchResponse {

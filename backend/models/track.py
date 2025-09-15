@@ -104,6 +104,7 @@ class SearchResult(BaseModel):
     track: TrackResponse
     similarity_score: float = Field(..., ge=0.0, le=1.0)
     match_type: str = Field(..., description="Type of match: text, image, audio, or combined")
+    query: Optional[str] = Field(None, description="Search query used to find this result")
 
 
 class SearchResponse(BaseModel):

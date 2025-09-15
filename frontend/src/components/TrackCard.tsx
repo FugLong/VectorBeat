@@ -28,6 +28,7 @@ import {
   Psychology,
 } from '@mui/icons-material';
 import { SearchResult } from '../types';
+import { highlightText, highlightLyrics } from '../utils/highlightText';
 
 interface TrackCardProps {
   result: SearchResult;
@@ -269,31 +270,49 @@ const TrackCard: React.FC<TrackCardProps> = ({ result, index }) => {
               <Typography variant="subtitle2" gutterBottom>
                 Track Information
               </Typography>
-              <Typography variant="body2" paragraph>
-                <strong>Title:</strong> {track.title}
-              </Typography>
-              <Typography variant="body2" paragraph>
-                <strong>Artist:</strong> {track.artist}
-              </Typography>
-              {track.album && track.album !== 'Unknown Album' && (
-                <Typography variant="body2" paragraph>
-                  <strong>Album:</strong> {track.album}
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                  Title:{' '}
                 </Typography>
+                {highlightText(track.title, result.query || '')}
+              </Box>
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                  Artist:{' '}
+                </Typography>
+                {highlightText(track.artist, result.query || '')}
+              </Box>
+              {track.album && track.album !== 'Unknown Album' && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Album:{' '}
+                  </Typography>
+                  {highlightText(track.album, result.query || '')}
+                </Box>
               )}
               {track.year && track.year > 0 && (
-                <Typography variant="body2" paragraph>
-                  <strong>Year:</strong> {track.year}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Year:{' '}
+                  </Typography>
+                  {highlightText(track.year.toString(), result.query || '')}
+                </Box>
               )}
               {track.genre && track.genre !== 'Unknown' && (
-                <Typography variant="body2" paragraph>
-                  <strong>Genre:</strong> {track.genre}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Genre:{' '}
+                  </Typography>
+                  {highlightText(track.genre, result.query || '')}
+                </Box>
               )}
               {track.tags && track.tags !== '' && (
-                <Typography variant="body2" paragraph>
-                  <strong>Tags:</strong> {track.tags}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Tags:{' '}
+                  </Typography>
+                  {highlightText(track.tags, result.query || '')}
+                </Box>
               )}
               {track.youtube_url && (
                 <Typography variant="body2" paragraph>
@@ -313,24 +332,36 @@ const TrackCard: React.FC<TrackCardProps> = ({ result, index }) => {
                 AI Analysis
               </Typography>
               {track.semantic_description && (
-                <Typography variant="body2" paragraph>
-                  <strong>Description:</strong> {track.semantic_description}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Description:{' '}
+                  </Typography>
+                  {highlightText(track.semantic_description, result.query || '')}
+                </Box>
               )}
               {track.mood && track.mood !== 'Unknown' && (
-                <Typography variant="body2" paragraph>
-                  <strong>Mood:</strong> {track.mood}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Mood:{' '}
+                  </Typography>
+                  {highlightText(track.mood, result.query || '')}
+                </Box>
               )}
               {track.tempo && track.tempo !== 'Unknown' && (
-                <Typography variant="body2" paragraph>
-                  <strong>Tempo:</strong> {track.tempo}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Tempo:{' '}
+                  </Typography>
+                  {highlightText(track.tempo, result.query || '')}
+                </Box>
               )}
               {track.instruments && track.instruments !== 'Unknown' && (
-                <Typography variant="body2" paragraph>
-                  <strong>Instruments:</strong> {track.instruments}
-                </Typography>
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="body2" component="span" sx={{ fontWeight: 'bold' }}>
+                    Instruments:{' '}
+                  </Typography>
+                  {highlightText(track.instruments, result.query || '')}
+                </Box>
               )}
             </Grid>
           </Grid>
@@ -351,8 +382,7 @@ const TrackCard: React.FC<TrackCardProps> = ({ result, index }) => {
               <Typography variant="subtitle2" gutterBottom color="primary">
                 🎵 Lyrics ({track.lyrics.length} characters)
               </Typography>
-              <Typography
-                variant="body2"
+              <Box
                 sx={{
                   maxHeight: 300,
                   overflow: 'auto',
@@ -361,14 +391,10 @@ const TrackCard: React.FC<TrackCardProps> = ({ result, index }) => {
                   borderRadius: 1,
                   border: '1px solid',
                   borderColor: 'divider',
-                  whiteSpace: 'pre-line',
-                  fontFamily: 'monospace',
-                  fontSize: '0.9rem',
-                  lineHeight: 1.4,
                 }}
               >
-                {track.lyrics}
-              </Typography>
+                {highlightLyrics(track.lyrics, result.query || '')}
+              </Box>
             </Box>
           )}
           {(!track.lyrics || !track.lyrics.trim()) && (
