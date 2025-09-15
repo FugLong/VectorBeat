@@ -201,7 +201,12 @@ async def get_database_stats(db: lancedb.LanceDBConnection) -> Dict[str, Any]:
         database_size_mb = 0.0
         try:
             import os
-            db_path = os.getenv("LANCE_DB_PATH", "./data/lancedb")
+            # Use the same path logic as the database connection
+            db_path = os.getenv("LANCE_DB_PATH", "../data/lancedb")
+            # If running from project root, adjust the path
+            if os.path.exists("./data/lancedb") and not os.path.exists(db_path):
+                db_path = "./data/lancedb"
+            
             if os.path.exists(db_path):
                 total_size = sum(
                     os.path.getsize(os.path.join(dirpath, filename))
@@ -209,7 +214,11 @@ async def get_database_stats(db: lancedb.LanceDBConnection) -> Dict[str, Any]:
                     for filename in filenames
                 )
                 database_size_mb = total_size / (1024 * 1024)
-        except Exception:
+                logger.info(f"Database size calculation: {db_path} -> {database_size_mb:.2f} MB")
+            else:
+                logger.warning(f"Database path does not exist: {db_path}")
+        except Exception as e:
+            logger.error(f"Failed to calculate database size: {str(e)}")
             pass
         
         return {
