@@ -567,17 +567,14 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                     album=track_info['album'],
                     year=track_info['year'],
                     genre=track_info['genre'],
-                    duration=track_info['duration_ms'] // 1000,  # Convert to seconds
                     youtube_url=youtube_url,
-                    thumbnail_url=track_info['album_art'] or '',
                     album_art_url=track_info['album_art'] or '',
                     lyrics=lyrics_text,  # Use fetched lyrics
                     semantic_description=description,
                     mood=mood,
                     tempo=tempo,
                     instruments=instruments,
-                    tags="",
-                    description=description
+                    tags=""
                 )
                 
                 # Add to database
