@@ -19,9 +19,7 @@ from backend.services.track_service import TrackService
 from backend.services.audio_analysis_service import AudioAnalysisService
 from backend.services.lyrics_service import LyricsService
 from backend.models.track import TrackCreate
-from backend.embeddings.text_embeddings import TextEmbeddingService
-from backend.embeddings.image_embeddings import ImageEmbeddingService
-from backend.embeddings.audio_embeddings import AudioEmbeddingService
+from backend.embeddings.multimodal_embeddings import MultimodalEmbeddingService
 from backend.progress import update_progress
 
 logger = logging.getLogger(__name__)
@@ -443,8 +441,7 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
         logger.info(f"Starting Spotify playlist ingestion: {playlist_url}")
         
         # Initialize services with embeddings (text + image only for now)
-        text_embedding_service = TextEmbeddingService()
-        image_embedding_service = ImageEmbeddingService()
+        multimodal_embedding_service = MultimodalEmbeddingService()
         lyrics_service = LyricsService()
         
         # Small delay to ensure frontend has cleared stale progress data
@@ -580,8 +577,8 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                 # Add to database
                 track = await track_service.create_track(track_create)
                 
-                # Generate embeddings (text + image only for now)
-                await generate_embeddings_from_spotify(track, track_info, text_embedding_service, image_embedding_service, None, None, None)
+                # Generate multimodal embeddings
+                await generate_embeddings_from_spotify(track, track_info, multimodal_embedding_service)
                 
                 tracks_added += 1
                 logger.info(f"Successfully added: {track.title} by {track.artist} ({track.year})")
@@ -609,34 +606,19 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
         raise
 
 
-async def generate_embeddings_from_spotify(track, track_info, text_service, image_service, audio_service, audio_path, audio_analysis_service=None):
-    """Generate embeddings from Spotify data."""
+async def generate_embeddings_from_spotify(track, track_info, multimodal_service):
+    """Generate multimodal embeddings from Spotify data."""
     try:
-        # Text embedding from title, artist, album, description, and lyrics
+        # Combine all text content
         text_content = f"{track.title} {track.artist} {track.album} {track.semantic_description}"
         if track.lyrics:
             text_content += f" {track.lyrics}"
-        text_embedding = text_service.embed_text(text_content)
         
-        # Image embedding from album art
-        image_embedding = None
-        if track.album_art_url:
-            try:
-                image_embedding = image_service.embed_image(track.album_art_url)
-            except Exception as e:
-                logger.debug(f"Image embedding failed: {str(e)}")
-        
-        # Skip audio embedding for now - focus on image search
-        audio_embedding = None
-        
-        # Generate lyrics-specific embedding if lyrics exist
-        lyrics_embedding = None
-        if track.lyrics:
-            try:
-                lyrics_embedding = text_service.embed_text(track.lyrics)
-            except Exception as e:
-                logger.debug(f"Lyrics embedding failed: {str(e)}")
-                lyrics_embedding = text_embedding  # Fallback to text embedding
+        # Generate multimodal embedding (text + image)
+        multimodal_embedding = multimodal_service.embed_multimodal_content(
+            text=text_content,
+            image_url=track.album_art_url
+        )
         
         # Update track with embeddings
         from backend.services.track_service import TrackService
@@ -645,11 +627,7 @@ async def generate_embeddings_from_spotify(track, track_info, text_service, imag
         track_service = TrackService(get_database())
         await track_service.update_track_embeddings(
             track.track_id,
-            text_embedding=text_embedding,
-            image_embedding=image_embedding,
-            audio_embedding=audio_embedding,
-            semantic_embedding=text_embedding,  # Use text embedding for semantic
-            lyrics_embedding=lyrics_embedding or text_embedding  # Use lyrics embedding if available
+            multimodal_embedding=multimodal_embedding
         )
         
     except Exception as e:

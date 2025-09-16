@@ -277,42 +277,22 @@ class TrackService:
             raise
     
     async def clear_database(self) -> None:
-        """Clear all tracks from the database."""
+        """Clear all tracks from the database by dropping and recreating the table."""
         try:
-            table = get_tracks_table(self.db)
+            from backend.database.schema import reset_database
             
-            # Get all track IDs to delete
-            df = table.to_pandas()
-            if df.empty:
-                logger.info("Database is already empty")
-                return
+            # Use reset_database which properly drops and recreates the table
+            # This actually removes the physical files, unlike delete operations
+            await reset_database(self.db)
             
-            # Delete all tracks using a more specific condition
-            # First get the track IDs to ensure we have something to delete
-            track_ids = df['track_id'].tolist()
-            if not track_ids:
-                logger.info("No tracks found to delete")
-                return
-            
-            # Delete tracks by ID (more reliable than "1=1")
-            for track_id in track_ids:
-                try:
-                    table.delete(f"track_id = '{track_id}'")
-                except Exception as e:
-                    logger.warning(f"Failed to delete track {track_id}: {str(e)}")
-                    continue
-            
-            logger.info(f"Cleared database: removed {len(track_ids)} tracks")
+            logger.info("Database cleared successfully by dropping and recreating table")
             
         except Exception as e:
             logger.error(f"Failed to clear database: {str(e)}")
             raise
     
-    async def update_track_embeddings(self, track_id: str, text_embedding: Optional[List[float]] = None, 
-                                    image_embedding: Optional[List[float]] = None, 
-                                    audio_embedding: Optional[List[float]] = None,
-                                    semantic_embedding: Optional[List[float]] = None,
-                                    lyrics_embedding: Optional[List[float]] = None) -> bool:
+    async def update_track_embeddings(self, track_id: str, multimodal_embedding: Optional[List[float]] = None,
+                                    audio_embedding: Optional[List[float]] = None) -> bool:
         """Update embeddings for an existing track."""
         try:
             # Get existing track
@@ -336,11 +316,8 @@ class TrackService:
                 mood=existing_track.mood,
                 tempo=existing_track.tempo,
                 instruments=existing_track.instruments,
-                text_embedding=text_embedding if text_embedding is not None else existing_track.text_embedding,
-                image_embedding=image_embedding if image_embedding is not None else existing_track.image_embedding,
+                multimodal_embedding=multimodal_embedding if multimodal_embedding is not None else existing_track.multimodal_embedding,
                 audio_embedding=audio_embedding if audio_embedding is not None else existing_track.audio_embedding,
-                semantic_embedding=semantic_embedding if semantic_embedding is not None else existing_track.semantic_embedding,
-                lyrics_embedding=lyrics_embedding if lyrics_embedding is not None else existing_track.lyrics_embedding,
                 created_at=existing_track.created_at,
                 updated_at=datetime.utcnow()
             )

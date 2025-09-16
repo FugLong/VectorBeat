@@ -60,11 +60,8 @@ class Track(TrackBase):
     updated_at: datetime
     
     # Embedding vectors (not included in API responses)
-    text_embedding: Optional[List[float]] = Field(None, exclude=True)
-    image_embedding: Optional[List[float]] = Field(None, exclude=True)
+    multimodal_embedding: Optional[List[float]] = Field(None, exclude=True)  # CLIP unified embedding
     audio_embedding: Optional[List[float]] = Field(None, exclude=True)
-    semantic_embedding: Optional[List[float]] = Field(None, exclude=True)
-    lyrics_embedding: Optional[List[float]] = Field(None, exclude=True)
     
     class Config:
         from_attributes = True

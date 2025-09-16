@@ -28,11 +28,8 @@ TRACKS_TABLE_SCHEMA = {
     "mood": "string",
     "tempo": "string",
     "instruments": "string",
-    "text_embedding": "float32[384]",  # sentence-transformers embedding
-    "image_embedding": "float32[512]",  # CLIP embedding
+    "multimodal_embedding": "float32[512]",  # CLIP unified text+image embedding
     "audio_embedding": "float32[1024]",  # Whisper + custom audio embedding
-    "semantic_embedding": "float32[384]",  # semantic description embedding
-    "lyrics_embedding": "float32[384]",  # lyrics embedding
     "created_at": "timestamp",
     "updated_at": "timestamp"
 }
@@ -61,11 +58,8 @@ async def create_tables(db: lancedb.LanceDBConnection) -> None:
                 "mood": "dummy",
                 "tempo": "dummy",
                 "instruments": "dummy",
-                "text_embedding": [0.0] * 384,
-                "image_embedding": [0.0] * 512,
+                "multimodal_embedding": [0.0] * 512,
                 "audio_embedding": [0.0] * 1024,
-                "semantic_embedding": [0.0] * 384,
-                "lyrics_embedding": [0.0] * 384,
                 "created_at": datetime.now(),
                 "updated_at": datetime.now()
             }]
@@ -107,11 +101,8 @@ def track_to_dict(track: Track) -> Dict[str, Any]:
         "mood": track.mood,
         "tempo": track.tempo,
         "instruments": track.instruments,
-        "text_embedding": track.text_embedding,
-        "image_embedding": track.image_embedding,
+        "multimodal_embedding": track.multimodal_embedding,
         "audio_embedding": track.audio_embedding,
-        "semantic_embedding": track.semantic_embedding,
-        "lyrics_embedding": track.lyrics_embedding,
         "created_at": track.created_at,
         "updated_at": track.updated_at
     }
@@ -134,11 +125,8 @@ def dict_to_track(data: Dict[str, Any]) -> Track:
         mood=data.get("mood"),
         tempo=data.get("tempo"),
         instruments=data.get("instruments"),
-        text_embedding=data.get("text_embedding"),
-        image_embedding=data.get("image_embedding"),
+        multimodal_embedding=data.get("multimodal_embedding"),
         audio_embedding=data.get("audio_embedding"),
-        semantic_embedding=data.get("semantic_embedding"),
-        lyrics_embedding=data.get("lyrics_embedding"),
         created_at=data["created_at"],
         updated_at=data["updated_at"]
     )
