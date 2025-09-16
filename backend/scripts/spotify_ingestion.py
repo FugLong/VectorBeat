@@ -609,16 +609,32 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
 async def generate_embeddings_from_spotify(track, track_info, multimodal_service):
     """Generate multimodal embeddings from Spotify data."""
     try:
-        # Combine all text content
+        # Combine all text content (this will be filtered in the embedding service)
         text_content = f"{track.title} {track.artist} {track.album} {track.semantic_description}"
         if track.lyrics:
             text_content += f" {track.lyrics}"
         
-        # Generate multimodal embedding (text + image)
-        multimodal_embedding = multimodal_service.embed_multimodal_content(
-            text=text_content,
-            image_url=track.album_art_url
-        )
+        # Generate embedding based on whether we have album art
+        if track.album_art_url and track.album_art_url.strip():
+            # For tracks with album art, use image-focused embedding with emotional lyrics
+            # Extract key emotional lyrics for understanding mood/themes
+            key_lyrics = multimodal_service._extract_key_lyrics(track.lyrics or "", max_words=20)
+            
+            # Combine title, artist, and key emotional lyrics
+            balanced_text = f"{track.title} {track.artist}"
+            if key_lyrics:
+                balanced_text += f" {key_lyrics}"
+            
+            multimodal_embedding = multimodal_service.embed_image_focused_content(
+                image_url=track.album_art_url,
+                minimal_text=balanced_text
+            )
+        else:
+            # For tracks without album art, use text-focused embedding
+            multimodal_embedding = multimodal_service.embed_multimodal_content(
+                text=text_content,
+                image_url=None
+            )
         
         # Update track with embeddings
         from backend.services.track_service import TrackService
