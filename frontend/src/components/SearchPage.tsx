@@ -29,10 +29,11 @@ const SearchPage: React.FC = () => {
   const [localQuery, setLocalQuery] = useState(state.query);
   const [localFilters, setLocalFilters] = useState<TrackFilters>(state.filters);
   const [showFilters, setShowFilters] = useState(false);
+  const [searchTrigger, setSearchTrigger] = useState(0);
 
   // Search query - only enabled when there's actually a query
   const { data: searchData, isLoading, error } = useQuery({
-    queryKey: ['search', state.query, state.filters, state.mode, state.page],
+    queryKey: ['search', state.query, state.filters, state.mode, state.page, searchTrigger],
     queryFn: () => ApiService.searchTracks({
       query: state.query,
       filters: state.filters,
@@ -65,10 +66,20 @@ const SearchPage: React.FC = () => {
   }, [error, dispatch]);
 
   const handleSearch = () => {
+    const queryChanged = state.query !== localQuery;
+    const filtersChanged = JSON.stringify(state.filters) !== JSON.stringify(localFilters);
+    
     dispatch({ type: 'SET_QUERY', payload: localQuery });
     dispatch({ type: 'SET_FILTERS', payload: localFilters });
-    dispatch({ type: 'CLEAR_RESULTS' });
-    dispatch({ type: 'SET_PAGE', payload: 1 }); // Reset to first page
+    
+    // Only clear results if query or filters actually changed
+    if (queryChanged || filtersChanged) {
+      dispatch({ type: 'CLEAR_RESULTS' });
+      dispatch({ type: 'SET_PAGE', payload: 1 }); // Reset to first page
+    }
+    
+    // Always increment search trigger to force new API call
+    setSearchTrigger(prev => prev + 1);
   };
 
   const handleClear = () => {
