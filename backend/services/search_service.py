@@ -311,9 +311,19 @@ class SearchService:
                         semantic_score = self.multimodal_embedding_service.similarity(query_embedding, track.multimodal_embedding)
                     # Skip tracks without multimodal embeddings in combined mode
                     
-                    # Combine metadata (60%) and semantic (40%) scores
-                    similarity_score = max(0.0, min(1.0, (metadata_score * 0.6) + (semantic_score * 0.4)))
-                    match_type = 'combined'
+                    # Create a true hierarchy: Semantic first, then metadata as tiebreaker
+                    # This ensures visual/emotional understanding takes absolute priority
+                    
+                    if semantic_score > 0:
+                        # If we have semantic understanding, use it as the primary score
+                        # Add a small metadata boost (max 0.1) as a tiebreaker
+                        metadata_boost = min(0.1, metadata_score * 0.1)  # Very small boost
+                        similarity_score = max(0.0, min(1.0, semantic_score + metadata_boost))
+                        match_type = 'combined'
+                    else:
+                        # Fallback to pure metadata if no semantic understanding
+                        similarity_score = max(0.0, min(1.0, metadata_score))
+                        match_type = 'combined'
                 
                 # Create search result
                 track_response = TrackResponse.from_track(track)
