@@ -297,6 +297,19 @@ async def get_stats(track_service: TrackService = Depends(get_track_service)):
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
 
 
+@app.get("/api/stats/duplicates")
+async def get_duplicate_stats(
+    track_service: TrackService = Depends(get_track_service)
+):
+    """Get duplicate statistics."""
+    try:
+        duplicate_stats = await track_service.get_duplicate_stats()
+        return duplicate_stats
+    except Exception as e:
+        logger.error(f"Duplicate stats error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get duplicate stats: {str(e)}")
+
+
 # Simple progress tracking
 from backend.progress import update_progress, get_progress, reset_progress
 
@@ -424,7 +437,8 @@ async def ingest_playlist(
             "message": "Ingestion started",
             "playlist_url": playlist_url,
             "tracks_processed": 0,
-            "tracks_added": 0
+            "tracks_added": 0,
+            "tracks_skipped": 0
         }
     except HTTPException:
         raise

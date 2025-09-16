@@ -494,6 +494,7 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
         
         tracks_processed = 0
         tracks_added = 0
+        tracks_skipped = 0
         
         # Process each track
         for track_info in playlist_info['tracks']:
@@ -574,6 +575,23 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                     tags=""
                 )
                 
+                # Check if track already exists before creating
+                existing_track = await track_service.track_exists(track_create.title, track_create.artist)
+                
+                if existing_track:
+                    # Track already exists, skip it
+                    tracks_skipped += 1
+                    logger.info(f"Skipped duplicate: {track_create.title} by {track_create.artist} (already exists)")
+                    
+                    # Update progress to show skip
+                    update_progress(
+                        current=tracks_processed,
+                        total=total_tracks,
+                        message=f"Processing track {tracks_processed}/{total_tracks} (Skipped: {tracks_skipped}, Added: {tracks_added})",
+                        currentTrack=f"Skipped: {track_create.title} by {track_create.artist}"
+                    )
+                    continue
+                
                 # Add to database
                 track = await track_service.create_track(track_create)
                 
@@ -583,6 +601,14 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                 tracks_added += 1
                 logger.info(f"Successfully added: {track.title} by {track.artist} ({track.year})")
                 
+                # Update progress to show addition
+                update_progress(
+                    current=tracks_processed,
+                    total=total_tracks,
+                    message=f"Processing track {tracks_processed}/{total_tracks} (Added: {tracks_added}, Skipped: {tracks_skipped})",
+                    currentTrack=f"Added: {track.title} by {track.artist}"
+                )
+                
                 # Skip audio cleanup for now
                 
             except Exception as e:
@@ -590,13 +616,23 @@ async def ingest_spotify_playlist(playlist_url: str, track_service: TrackService
                 continue
         
         # Simple completion logging
-        logger.info(f"Ingestion completed! Processed {tracks_processed} tracks, added {tracks_added}.")
+        logger.info(f"Ingestion completed! Processed {tracks_processed} tracks, added {tracks_added}, skipped {tracks_skipped} duplicates.")
         
-        logger.info(f"Spotify ingestion completed: {tracks_added}/{tracks_processed} tracks added")
+        logger.info(f"Spotify ingestion completed: {tracks_added}/{tracks_processed} tracks added, {tracks_skipped} duplicates skipped")
+        
+        # Final progress update
+        update_progress(
+            isActive=False,
+            current=tracks_processed,
+            total=total_tracks,
+            message=f"Ingestion completed! Added {tracks_added} tracks, skipped {tracks_skipped} duplicates.",
+            currentTrack=""
+        )
         
         return {
             "tracks_processed": tracks_processed,
             "tracks_added": tracks_added,
+            "tracks_skipped": tracks_skipped,
             "playlist_title": playlist_info.get('title', 'Unknown'),
             "playlist_url": playlist_url
         }

@@ -22,9 +22,68 @@ class TrackService:
         """Initialize track service with database connection."""
         self.db = db
     
-    async def create_track(self, track_data: TrackCreate) -> Track:
-        """Create a new track in the database."""
+    async def track_exists(self, title: str, artist: str) -> Optional[Track]:
+        """Check if a track already exists in the database by title and artist."""
         try:
+            table = get_tracks_table(self.db)
+            
+            # Try exact match first (much faster than loading all data)
+            try:
+                # Escape single quotes for SQL safety
+                escaped_title = title.replace("'", "''")
+                escaped_artist = artist.replace("'", "''")
+                where_clause = f"title = '{escaped_title}' AND artist = '{escaped_artist}'"
+                result = table.search().where(where_clause).to_df()
+                
+                if not result.empty:
+                    track_data = result.iloc[0].to_dict()
+                    return dict_to_track(track_data)
+            except Exception:
+                # If exact match fails, fall back to case-insensitive search
+                pass
+            
+            # Fallback: case-insensitive search (only if exact match fails)
+            try:
+                # Get all tracks and filter in Python since LanceDB doesn't support LOWER()
+                df = table.to_pandas()
+                
+                if df.empty:
+                    return None
+                
+                # Case-insensitive comparison
+                title_lower = title.lower().strip()
+                artist_lower = artist.lower().strip()
+                
+                # Find matching tracks
+                matches = df[
+                    (df['title'].str.lower().str.strip() == title_lower) & 
+                    (df['artist'].str.lower().str.strip() == artist_lower)
+                ]
+                
+                if matches.empty:
+                    return None
+                
+                # Return the first match
+                track_data = matches.iloc[0].to_dict()
+                return dict_to_track(track_data)
+                
+            except Exception as e:
+                logger.debug(f"Case-insensitive search failed: {str(e)}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Failed to check if track exists: {str(e)}")
+            return None
+
+    async def create_track(self, track_data: TrackCreate) -> Track:
+        """Create a new track in the database, or return existing track if it already exists."""
+        try:
+            # First check if track already exists
+            existing_track = await self.track_exists(track_data.title, track_data.artist)
+            if existing_track:
+                logger.info(f"Track already exists: {existing_track.title} by {existing_track.artist} (ID: {existing_track.track_id})")
+                return existing_track
+            
             # Generate unique track ID
             track_id = str(uuid4())
             
@@ -274,6 +333,35 @@ class TrackService:
             
         except Exception as e:
             logger.error(f"Failed to get database stats: {str(e)}")
+            raise
+    
+    async def get_duplicate_stats(self) -> Dict[str, Any]:
+        """Get statistics about potential duplicates in the database."""
+        try:
+            table = get_tracks_table(self.db)
+            df = table.to_pandas()
+            
+            if df.empty:
+                return {"total_tracks": 0, "unique_tracks": 0, "duplicates": 0, "duplicate_groups": 0}
+            
+            # Count tracks by title + artist combination (case insensitive)
+            df['title_artist_key'] = df['title'].str.lower() + '||' + df['artist'].str.lower()
+            duplicate_counts = df['title_artist_key'].value_counts()
+            
+            total_tracks = len(df)
+            unique_tracks = len(duplicate_counts)
+            duplicates = total_tracks - unique_tracks
+            duplicate_groups = len(duplicate_counts[duplicate_counts > 1])
+            
+            return {
+                "total_tracks": total_tracks,
+                "unique_tracks": unique_tracks,
+                "duplicates": duplicates,
+                "duplicate_groups": duplicate_groups
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get duplicate stats: {str(e)}")
             raise
     
     async def clear_database(self) -> None:
