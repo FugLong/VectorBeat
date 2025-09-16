@@ -41,11 +41,33 @@ class SearchService:
             if df.empty:
                 return [], 0
             
-            # For semantic search, pre-compute query embedding once for performance
+            # For semantic search, pre-compute query embeddings once for performance
             query_embedding = None
+            query_phrase_embedding = None
+            query_word_embeddings = None
+            
             if mode in ['semantic', 'combined']:
                 try:
-                    query_embedding = self.multimodal_embedding_service.embed_text(query)
+                    
+                    # Check if this is a year query (exact metadata should take priority)
+                    import re
+                    is_year_query = bool(re.match(r'^\d{4}$', query.strip())) or any(year in query for year in ['1999', '2000', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024'])
+                    
+                    # Generate phrase embedding (treats "yellow pants" as one concept)
+                    query_phrase_embedding = self.multimodal_embedding_service.embed_text(query)
+                    
+                    # Generate individual word embeddings for fallback
+                    query_words = query.lower().split()
+                    if len(query_words) > 1:  # Only for multi-word queries
+                        query_word_embeddings = []
+                        for word in query_words:
+                            if len(word) > 2:  # Skip very short words
+                                word_embedding = self.multimodal_embedding_service.embed_text(word)
+                                query_word_embeddings.append((word, word_embedding))
+                    
+                    # Use phrase embedding as primary
+                    query_embedding = query_phrase_embedding
+                    
                 except Exception as e:
                     logger.warning(f"Failed to generate query embedding: {str(e)}")
                     # Fallback to metadata search if embedding fails
@@ -93,55 +115,121 @@ class SearchService:
                     if track.title and phrase_matches == 0:
                         title_lower = track.title.lower()
                         if query_words:
-                            total_word_count = 0
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += title_lower.count(word)
-                            # For single-word searches, use occurrence count directly
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, title_lower):
+                                    whole_word_matches += title_lower.count(word)  # Count all occurrences
+                                elif word in title_lower:
+                                    partial_word_matches += title_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
                             if len(query_words) == 1:
-                                score += min(0.5, total_word_count * 0.25)  # Direct count-based scoring for title
+                                if whole_word_matches > 0:
+                                    score += min(0.5, whole_word_matches * 0.25)  # Direct count-based scoring for whole words
+                                elif partial_word_matches > 0:
+                                    score += min(0.15, partial_word_matches * 0.08)  # Lower for partial matches
                             else:
-                                # For multi-word searches, use the existing logic
-                                if all(word in title_lower for word in query_words):
-                                    score += 0.5
-                                score += min(0.3, (total_word_count / len(query_words)) * 0.08)
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    score += min(0.5, (whole_word_matches / len(query_words)) * 0.5)
+                                elif partial_word_matches > 0:
+                                    score += min(0.15, (partial_word_matches / len(query_words)) * 0.08)  # Lower for partial
                     
-                    # Artist matching (high priority) - only if no phrase match
+                    # Artist matching (third priority) - only if no phrase match
                     if track.artist and phrase_matches == 0:
                         artist_lower = track.artist.lower()
-                        if query_words and all(word in artist_lower for word in query_words):
-                            score += 0.4  # Reduced from 0.7
-                        elif query_words:
-                            total_word_count = 0
+                        if query_words:
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += artist_lower.count(word)
-                            score += min(0.25, (total_word_count / len(query_words)) * 0.06)  # Cap per field and reduce multiplier
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, artist_lower):
+                                    whole_word_matches += artist_lower.count(word)  # Count all occurrences
+                                elif word in artist_lower:
+                                    partial_word_matches += artist_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
+                            if len(query_words) == 1:
+                                if whole_word_matches > 0:
+                                    score += min(0.4, whole_word_matches * 0.2)  # Lower than title
+                                elif partial_word_matches > 0:
+                                    score += min(0.12, partial_word_matches * 0.06)  # Lower than title partial
+                            else:
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    score += min(0.4, (whole_word_matches / len(query_words)) * 0.4)
+                                elif partial_word_matches > 0:
+                                    score += min(0.12, (partial_word_matches / len(query_words)) * 0.06)  # Lower than title partial
                     
-                    # Lyrics matching (high priority) - only if no phrase match
+                    # Lyrics matching (fourth priority) - only if no phrase match
                     if track.lyrics and phrase_matches == 0:
                         lyrics_lower = track.lyrics.lower()
                         if query_words:
-                            total_word_count = 0
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += lyrics_lower.count(word)
-                            # For single-word searches, use occurrence count directly
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, lyrics_lower):
+                                    whole_word_matches += lyrics_lower.count(word)  # Count all occurrences
+                                elif word in lyrics_lower:
+                                    partial_word_matches += lyrics_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
                             if len(query_words) == 1:
-                                score += min(0.4, total_word_count * 0.15)  # Direct count-based scoring
+                                if whole_word_matches > 0:
+                                    score += min(0.35, whole_word_matches * 0.15)  # Lower than artist
+                                elif partial_word_matches > 0:
+                                    score += min(0.1, partial_word_matches * 0.05)  # Lower than artist partial
                             else:
-                                # For multi-word searches, use the existing logic
-                                if all(word in lyrics_lower for word in query_words):
-                                    score += 0.4
-                                score += min(0.25, (total_word_count / len(query_words)) * 0.06)
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    score += min(0.35, (whole_word_matches / len(query_words)) * 0.35)
+                                elif partial_word_matches > 0:
+                                    score += min(0.1, (partial_word_matches / len(query_words)) * 0.05)  # Lower than artist partial
                     
-                    # Album matching (medium priority) - only if no phrase match
+                    # Album matching (second priority) - only if no phrase match
                     if track.album and phrase_matches == 0:
                         album_lower = track.album.lower()
-                        if query_words and all(word in album_lower for word in query_words):
-                            score += 0.5
-                        elif query_words:
-                            total_word_count = 0
+                        if query_words:
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += album_lower.count(word)
-                            score += min(0.2, (total_word_count / len(query_words)) * 0.08)  # Cap per field and reduce multiplier
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, album_lower):
+                                    whole_word_matches += album_lower.count(word)  # Count all occurrences
+                                elif word in album_lower:
+                                    partial_word_matches += album_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
+                            if len(query_words) == 1:
+                                if whole_word_matches > 0:
+                                    score += min(0.45, whole_word_matches * 0.22)  # Between title and artist
+                                elif partial_word_matches > 0:
+                                    score += min(0.13, partial_word_matches * 0.07)  # Between title and artist partial
+                            else:
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    score += min(0.45, (whole_word_matches / len(query_words)) * 0.45)
+                                elif partial_word_matches > 0:
+                                    score += min(0.13, (partial_word_matches / len(query_words)) * 0.07)  # Between title and artist partial
                     
                     # Genre matching (medium priority) - only if no phrase match
                     if track.genre and phrase_matches == 0:
@@ -163,9 +251,11 @@ class SearchService:
                                 total_word_count += desc_lower.count(word)
                             score += min(0.1, (total_word_count / len(query_words)) * 0.04)  # Cap per field and reduce multiplier
                     
-                    # Year matching
-                    if track.year and str(track.year) in query:
-                        score += 0.2
+                    # Year matching (boosted for exact matches)
+                    if track.year and str(track.year) == query_lower:
+                        score += 1.0  # Boosted for exact year matches
+                    elif track.year and str(track.year) in query:
+                        score += 0.4  # Boosted for partial year matches
                     
                     # Fallback: if no meaningful matches found, try single letters (very low priority)
                     if score == 0 and len(all_query_words) > 0:
@@ -187,13 +277,36 @@ class SearchService:
                     match_type = 'metadata'
                 
                 elif mode == 'semantic':
-                    # Pure semantic search using multimodal embeddings only
+                    # Pure semantic search using phrase-first approach
                     similarity_score = 0.0
                     match_type = 'semantic'
                     
-                    # Only use multimodal embeddings for pure semantic search
                     if track.multimodal_embedding and query_embedding is not None:
-                        similarity_score = self.multimodal_embedding_service.similarity(query_embedding, track.multimodal_embedding)
+                        # Primary: Phrase embedding (treats "yellow pants" as one concept)
+                        phrase_similarity = self.multimodal_embedding_service.similarity(query_embedding, track.multimodal_embedding)
+                        
+                        # Secondary: Individual word similarities (weighted lower)
+                        word_similarities = []
+                        if query_word_embeddings:
+                            for word, word_embedding in query_word_embeddings:
+                                word_sim = self.multimodal_embedding_service.similarity(word_embedding, track.multimodal_embedding)
+                                word_similarities.append(word_sim)
+                        
+                        # Combine phrase (primary) with individual words (secondary)
+                        if word_similarities:
+                            # Phrase gets 85% weight, individual words get 15% weight (balanced phrase priority)
+                            avg_word_similarity = sum(word_similarities) / len(word_similarities)
+                            similarity_score = (phrase_similarity * 0.85) + (avg_word_similarity * 0.15)
+                        else:
+                            # Single word or no word embeddings, use phrase only
+                            similarity_score = phrase_similarity
+                        
+                        # Apply lyrics penalty for tracks without lyrics
+                        if not track.lyrics or not track.lyrics.strip():
+                            # Reduce score by 10% for tracks without lyrics (more balanced)
+                            similarity_score *= 0.9
+                        
+                        
                         match_type = 'multimodal'
                     # Skip tracks without multimodal embeddings in semantic mode
                 
@@ -229,55 +342,115 @@ class SearchService:
                     if track.title and phrase_matches == 0:
                         title_lower = track.title.lower()
                         if query_words:
-                            total_word_count = 0
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += title_lower.count(word)
-                            # For single-word searches, use occurrence count directly
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, title_lower):
+                                    whole_word_matches += title_lower.count(word)  # Count all occurrences
+                                elif word in title_lower:
+                                    partial_word_matches += title_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
                             if len(query_words) == 1:
-                                metadata_score += min(0.5, total_word_count * 0.25)  # Direct count-based scoring for title
+                                if whole_word_matches > 0:
+                                    metadata_score += min(0.5, whole_word_matches * 0.25)  # Direct count-based scoring for whole words
+                                elif partial_word_matches > 0:
+                                    metadata_score += min(0.25, partial_word_matches * 0.12)  # Higher for partial matches
                             else:
-                                # For multi-word searches, use the existing logic
-                                if all(word in title_lower for word in query_words):
-                                    metadata_score += 0.5
-                                metadata_score += min(0.3, (total_word_count / len(query_words)) * 0.08)
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    metadata_score += min(0.5, (whole_word_matches / len(query_words)) * 0.5)
+                                elif partial_word_matches > 0:
+                                    metadata_score += min(0.25, (partial_word_matches / len(query_words)) * 0.12)  # Higher for partial
                     
                     # Artist matching (high priority) - only if no phrase match
                     if track.artist and phrase_matches == 0:
                         artist_lower = track.artist.lower()
-                        if query_words and all(word in artist_lower for word in query_words):
-                            metadata_score += 0.4  # Reduced from 0.7
-                        elif query_words:
-                            total_word_count = 0
+                        if query_words:
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += artist_lower.count(word)
-                            metadata_score += min(0.25, (total_word_count / len(query_words)) * 0.06)  # Cap per field and reduce multiplier
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, artist_lower):
+                                    whole_word_matches += 1
+                                elif word in artist_lower:
+                                    partial_word_matches += artist_lower.count(word)
+                            
+                            # Whole word matches get much higher score
+                            if whole_word_matches > 0:
+                                metadata_score += min(0.4, whole_word_matches * 0.4)
+                            # Partial word matches get very low score
+                            elif partial_word_matches > 0:
+                                metadata_score += min(0.05, (partial_word_matches / len(query_words)) * 0.02)  # Much lower multiplier
                     
-                    # Lyrics matching (high priority) - only if no phrase match
+                    # Lyrics matching (fourth priority) - only if no phrase match
                     if track.lyrics and phrase_matches == 0:
                         lyrics_lower = track.lyrics.lower()
                         if query_words:
-                            total_word_count = 0
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += lyrics_lower.count(word)
-                            # For single-word searches, use occurrence count directly
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, lyrics_lower):
+                                    whole_word_matches += lyrics_lower.count(word)  # Count all occurrences
+                                elif word in lyrics_lower:
+                                    partial_word_matches += lyrics_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
                             if len(query_words) == 1:
-                                metadata_score += min(0.4, total_word_count * 0.15)  # Direct count-based scoring
+                                if whole_word_matches > 0:
+                                    metadata_score += min(0.15, whole_word_matches * 0.05)  # Much lower than artist
+                                elif partial_word_matches > 0:
+                                    metadata_score += min(0.05, partial_word_matches * 0.02)  # Much lower than artist partial
                             else:
-                                # For multi-word searches, use the existing logic
-                                if all(word in lyrics_lower for word in query_words):
-                                    metadata_score += 0.4
-                                metadata_score += min(0.25, (total_word_count / len(query_words)) * 0.06)
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    metadata_score += min(0.15, (whole_word_matches / len(query_words)) * 0.15)
+                                elif partial_word_matches > 0:
+                                    metadata_score += min(0.05, (partial_word_matches / len(query_words)) * 0.02)  # Much lower than artist partial
                     
-                    # Album matching (medium priority) - only if no phrase match
+                    # Album matching (second priority) - only if no phrase match
                     if track.album and phrase_matches == 0:
                         album_lower = track.album.lower()
-                        if query_words and all(word in album_lower for word in query_words):
-                            metadata_score += 0.5
-                        elif query_words:
-                            total_word_count = 0
+                        if query_words:
+                            # Check for whole word matches first (much higher priority)
+                            whole_word_matches = 0
+                            partial_word_matches = 0
+                            
                             for word in query_words:
-                                total_word_count += album_lower.count(word)
-                            metadata_score += min(0.2, (total_word_count / len(query_words)) * 0.08)  # Cap per field and reduce multiplier
+                                # Check for whole word match (word boundaries)
+                                import re
+                                whole_word_pattern = r'\b' + re.escape(word) + r'\b'
+                                if re.search(whole_word_pattern, album_lower):
+                                    whole_word_matches += album_lower.count(word)  # Count all occurrences
+                                elif word in album_lower:
+                                    partial_word_matches += album_lower.count(word)
+                            
+                            # For single-word searches, prioritize whole word matches
+                            if len(query_words) == 1:
+                                if whole_word_matches > 0:
+                                    metadata_score += min(0.45, whole_word_matches * 0.22)  # Between title and artist
+                                elif partial_word_matches > 0:
+                                    metadata_score += min(0.20, partial_word_matches * 0.10)  # Between title and artist partial
+                            else:
+                                # For multi-word searches, prioritize whole word matches
+                                if whole_word_matches > 0:
+                                    metadata_score += min(0.45, (whole_word_matches / len(query_words)) * 0.45)
+                                elif partial_word_matches > 0:
+                                    metadata_score += min(0.20, (partial_word_matches / len(query_words)) * 0.10)  # Between title and artist partial
                     
                     # Genre matching (medium priority) - only if no phrase match
                     if track.genre and phrase_matches == 0:
@@ -299,25 +472,54 @@ class SearchService:
                                 total_word_count += desc_lower.count(word)
                             metadata_score += min(0.1, (total_word_count / len(query_words)) * 0.04)  # Cap per field and reduce multiplier
                     
-                    # Year matching
-                    if track.year and str(track.year) in query:
-                        metadata_score += 0.2
+                    # Year matching (boosted for exact matches)
+                    if track.year and str(track.year) == query_lower:
+                        metadata_score += 1.0  # Boosted for exact year matches
+                    elif track.year and str(track.year) in query:
+                        metadata_score += 0.4  # Boosted for partial year matches
                     
-                    # Calculate semantic score using embeddings
+                    # Calculate semantic score using phrase-first approach
                     semantic_score = 0.0
                     
-                    # Use multimodal embedding if available (preferred)
                     if track.multimodal_embedding and query_embedding is not None:
-                        semantic_score = self.multimodal_embedding_service.similarity(query_embedding, track.multimodal_embedding)
-                    # Skip tracks without multimodal embeddings in combined mode
+                        # Primary: Phrase embedding (treats "yellow pants" as one concept)
+                        phrase_similarity = self.multimodal_embedding_service.similarity(query_embedding, track.multimodal_embedding)
+                        
+                        # Secondary: Individual word similarities (weighted lower)
+                        word_similarities = []
+                        if query_word_embeddings:
+                            for word, word_embedding in query_word_embeddings:
+                                word_sim = self.multimodal_embedding_service.similarity(word_embedding, track.multimodal_embedding)
+                                word_similarities.append(word_sim)
+                        
+                        # Combine phrase (primary) with individual words (secondary)
+                        if word_similarities:
+                            # Phrase gets 85% weight, individual words get 15% weight (balanced phrase priority)
+                            avg_word_similarity = sum(word_similarities) / len(word_similarities)
+                            semantic_score = (phrase_similarity * 0.85) + (avg_word_similarity * 0.15)
+                        else:
+                            # Single word or no word embeddings, use phrase only
+                            semantic_score = phrase_similarity
+                        
+                        # Apply lyrics penalty for tracks without lyrics
+                        if not track.lyrics or not track.lyrics.strip():
+                            # Reduce score by 10% for tracks without lyrics (more balanced)
+                            semantic_score *= 0.9
+                        
+                        # No semantic penalties - let metadata scoring handle the field hierarchy naturally
+                        
                     
-                    # Create a true hierarchy: Semantic first, then metadata as tiebreaker
-                    # This ensures visual/emotional understanding takes absolute priority
+                    # Create a true hierarchy: Exact metadata first for specific queries, then semantic
+                    # This ensures exact matches (like years) take priority over semantic understanding
                     
-                    if semantic_score > 0:
+                    if is_year_query and metadata_score > 0:
+                        # For year queries, prioritize exact metadata matches
+                        similarity_score = min(1.0, metadata_score)  # Clamp to 1.0
+                        match_type = 'metadata'
+                    elif semantic_score > 0:
                         # If we have semantic understanding, use it as the primary score
-                        # Add a small metadata boost (max 0.1) as a tiebreaker
-                        metadata_boost = min(0.1, metadata_score * 0.1)  # Very small boost
+                        # Add a moderate metadata boost (max 0.12) to balance semantic dominance
+                        metadata_boost = min(0.12, metadata_score * 0.12)  # Moderate boost
                         similarity_score = max(0.0, min(1.0, semantic_score + metadata_boost))
                         match_type = 'combined'
                     else:
@@ -329,7 +531,7 @@ class SearchService:
                 track_response = TrackResponse.from_track(track)
                 result = SearchResult(
                     track=track_response,
-                    similarity_score=similarity_score,
+                    similarity_score=min(1.0, max(0.0, similarity_score)),  # Clamp to [0, 1]
                     match_type=match_type,
                     query=query
                 )
@@ -381,6 +583,7 @@ class SearchService:
         except Exception as e:
             logger.error(f"Failed to apply filters: {str(e)}")
             return df
+    
     
     
     
