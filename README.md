@@ -1,5 +1,7 @@
 # VectorBeat: Multi-Modal Music Search
 
+![VectorBeat Interface](VectorBeatImage.png)
+
 VectorBeat is a multi-modal music search system that lets you find music using natural language. Search by lyrics, mood, genre, or even describe what the album art looks like.
 
 ## 🎵 Features
